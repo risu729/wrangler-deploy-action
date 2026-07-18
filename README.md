@@ -21,8 +21,8 @@ modify the caller's package files.
 ## Usage
 
 Install the repository's tools and build the Worker before invoking the action.
-The examples use moving major tags for readability. Pin actions to a full commit
-SHA in security-sensitive workflows.
+The examples use immutable release tags for readability. Pin actions to a full
+commit SHA in security-sensitive workflows.
 
 ### Pull-request preview or dry-run
 
@@ -46,7 +46,7 @@ jobs:
         run: mise run worker:build
       - name: Upload preview or validate deployment
         id: worker
-        uses: risu729/wrangler-deploy-action@v1
+        uses: risu729/wrangler-deploy-action@v1.0.0
         with:
           mode: preview-or-dry-run
           working-directory: worker
@@ -101,7 +101,7 @@ jobs:
       - name: Build Worker
         run: mise run worker:build
       - name: Deploy Worker
-        uses: risu729/wrangler-deploy-action@v1
+        uses: risu729/wrangler-deploy-action@v1.0.0
         with:
           mode: production
           working-directory: worker
@@ -160,19 +160,14 @@ calling the action.
 
 ## Releases
 
-Release Please maintains a release pull request from Conventional Commit
-history. Merging that pull request creates an immutable `vMAJOR.MINOR.PATCH`
-GitHub release and moves the corresponding `vMAJOR` and `vMAJOR.MINOR` action
-tags to the released commit.
+Semantic Release runs after every push to `main`. It analyzes Conventional
+Commits and creates an immutable `vMAJOR.MINOR.PATCH` tag and GitHub release
+when the commit history contains a release-worthy change.
 
-The `release` GitHub environment requires:
-
-- Variable `BOT_APP_ID`
-- Secret `BOT_PRIVATE_KEY`
-
-The GitHub App must be installed on this repository with Contents, Issues, and
-Pull requests read/write access. The App token allows release pull requests to
-run normal CI, unlike changes authored with the workflow's built-in token.
+This is a composite action, so there is no generated `dist/` to commit or
+publish. Each release tag points directly to the committed `action.yml` and
+shell implementation. Consumers should use an immutable version tag or,
+preferably, a full commit SHA.
 
 Renovate extends
 [`risu729/renovate-config`](https://github.com/risu729/renovate-config) to keep
