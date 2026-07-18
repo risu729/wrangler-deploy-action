@@ -1,0 +1,67 @@
+name: Release Please
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    name: Release
+    if: github.repository == 'risu729/wrangler-deploy-action'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - name: Create GitHub App token
+        id: github-app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+      - name: Create or update release
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.github-app.outputs.token }}
+      - name: Checkout released commit
+        if: steps.release.outputs.release_created == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Update major and minor action tags
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ steps.github-app.outputs.token }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          MAJOR: ${{ steps.release.outputs.major }}
+          MINOR: ${{ steps.release.outputs.minor }}
+        run: |
+          git config user.name "risu729-bot[bot]"
+          git config user.email "risu729-bot[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git tag --force --annotate "v${MAJOR}" "${RELEASE_SHA}" --message "Release v${MAJOR}"
+          git tag --force --annotate "v${MAJOR}.${MINOR}" "${RELEASE_SHA}" --message "Release v${MAJOR}.${MINOR}"
+          git push origin --force "v${MAJOR}" "v${MAJOR}.${MINOR}"
+  actions-timeline:
+    name: Generate Actions Timeline
+    needs:
+      - release
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read # for actions-timeline
+    steps:
+      - name: actions-timeline
+        uses: Kesin11/actions-timeline@7bf79990b7c09f5dfb570ac30b814ca597bd538e # v3.1.1

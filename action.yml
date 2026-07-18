@@ -1,0 +1,61 @@
+name: Wrangler Deploy
+description: >-
+  Deploy Cloudflare Workers with PR previews, dry-run fallbacks, and Actions summaries.
+author: Taku Kodama
+branding:
+  icon: upload-cloud
+  color: orange
+inputs:
+  mode:
+    description: >-
+      Operation to perform: preview-or-dry-run, dry-run, or production.
+    required: true
+  working-directory:
+    description: >-
+      Directory from which Wrangler runs, relative to GITHUB_WORKSPACE.
+    required: false
+    default: .
+  config:
+    description: Wrangler configuration path, relative to the working directory.
+    required: false
+    default: wrangler.toml
+  environment:
+    description: Optional Wrangler environment passed with --env.
+    required: false
+  preview-alias:
+    description: Stable preview alias used by preview-or-dry-run mode.
+    required: false
+  cloudflare-account-id:
+    description: Cloudflare account ID used for authenticated operations.
+    required: false
+  cloudflare-api-token:
+    description: Cloudflare API token used for authenticated operations.
+    required: false
+outputs:
+  effective-mode:
+    description: "Operation performed: preview, dry-run, or production."
+    value: ${{ steps.deploy.outputs.effective-mode }}
+  preview-url:
+    description: Version-specific Workers preview URL.
+    value: ${{ steps.deploy.outputs.preview-url }}
+  preview-alias-url:
+    description: Stable Workers preview alias URL.
+    value: ${{ steps.deploy.outputs.preview-alias-url }}
+  deployment-targets:
+    description: JSON array containing every production deployment target.
+    value: ${{ steps.deploy.outputs.deployment-targets }}
+runs:
+  using: composite
+  steps:
+    - name: Deploy with Wrangler
+      id: deploy
+      shell: bash
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_ENVIRONMENT: ${{ inputs.environment }}
+        INPUT_PREVIEW_ALIAS: ${{ inputs.preview-alias }}
+        INPUT_CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        INPUT_CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+      run: "${GITHUB_ACTION_PATH}/src/deploy.sh"

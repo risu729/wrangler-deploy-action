@@ -1,0 +1,35 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+min_version = "2026.7.7"
+
+[tools]
+hk = "1.51.0"
+actionlint = "1.7.12"
+# required for actionlint
+shellcheck = "0.11.0"
+ghalint = "1.5.6"
+pinact = "4.1.0"
+zizmor = "1.27.0"
+tombi = "1.2.2"
+rumdl = "v0.2.35"
+shfmt = "3.13.1"
+yamlfmt = "0.21.0"
+# required for pipx backend
+uv = "0.11.29"
+yamllint = "1.38.0"
+lychee = "0.24.2"
+typos = "1.48.0"
+
+[settings]
+experimental = true
+
+[tasks.check]
+description = "Run hk linters and formatters."
+usage = '''
+flag "--lint" help="Run hk check instead of fix"
+'''
+run = "hk {% if usage.lint %}check{% else %}fix{% endif %} --all --no-progress --no-fail-fast"
+
+[tasks.test]
+description = "Run deploy action tests."
+run = "tests/deploy.sh"
