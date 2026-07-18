@@ -1,0 +1,18 @@
+amends
+  "https://raw.githubusercontent.com/risu729/hk-config/a34802b174b5a1f669dbd09fb6301f7eca7a5770/presets.pkl"
+
+import
+  "https://raw.githubusercontent.com/risu729/hk-config/a34802b174b5a1f669dbd09fb6301f7eca7a5770/helpers.pkl"
+
+local picked =
+  helpers.pick(new Listing {
+    "github-actions"
+    "tombi"
+    "yaml"
+    "shellcheck"
+    "mise"
+    "typos"
+    "hygiene"
+  })
+
+hooks = helpers.standardHooks(picked)
