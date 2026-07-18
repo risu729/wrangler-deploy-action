@@ -8,12 +8,10 @@ local picked =
   helpers.pick(new Listing {
     "github-actions"
     "tombi"
-    "rumdl"
     "yaml"
     "shfmt"
     "shellcheck"
     "mise"
-    "lychee"
     "typos"
     "hygiene"
   })
