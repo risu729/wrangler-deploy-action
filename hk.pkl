@@ -9,6 +9,7 @@ local picked =
     "github-actions"
     "tombi"
     "yaml"
+    "shfmt"
     "shellcheck"
     "mise"
     "typos"
