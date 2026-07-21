@@ -21,87 +21,107 @@ modify the caller's package files.
 ## Usage
 
 Install the repository's tools and build the Worker before invoking the action.
-The examples use immutable release tags for readability. Pin actions to a full
-commit SHA in security-sensitive workflows.
+Every action reference uses a full commit SHA. Update this action's pre-release
+SHA to the tagged release SHA when v1 is published.
 
 ### Pull-request preview or dry-run
 
 ```yaml
+name: Worker Deploy Check
+on:
+  pull_request:
+    branches:
+      - main
+permissions: {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   worker-deploy-check:
     name: Worker Deploy Check
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
+          version: 2026.7.7
           install_args: --locked
       - name: Build Worker
         run: mise run worker:build
       - name: Upload preview or validate deployment
         id: worker
-        uses: risu729/wrangler-deploy-action@v1.0.0
+        uses: risu729/wrangler-deploy-action@16a6985780586b6143b924f88973fb26848caf83
         with:
           mode: preview-or-dry-run
           working-directory: worker
           config: wrangler.jsonc
           preview-alias: pr-${{ github.event.pull_request.number }}
-          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-```
-
-Secrets are unavailable to workflows from forks. When both credential inputs
-are empty, `preview-or-dry-run` automatically performs the dry-run. Supplying
-only one credential is treated as a configuration error.
-
-To make validation merge-blocking, include this job in the repository's stable
-required-check guard:
-
-```yaml
   ci-check:
     name: CI Check
     needs:
-      - lint
-      - test
       - worker-deploy-check
     if: >-
       ${{ !cancelled() &&
       (contains(needs.*.result, 'failure') ||
       contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
     steps:
       - run: exit 1
 ```
 
+Keep both preview credentials as repository secrets. Secrets are unavailable to
+workflows from forks, so both inputs become empty and `preview-or-dry-run`
+performs a dry-run. Supplying only one credential is a configuration error.
+
+The example includes a stable `CI Check` guard for branch protection. Add the
+repository's other required jobs to its `needs` list.
+
 ### Production deployment
 
 ```yaml
+name: Deploy Worker
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: worker-production
+  cancel-in-progress: false
 jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     environment: production
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
+          version: 2026.7.7
           install_args: --locked
       - name: Build Worker
         run: mise run worker:build
       - name: Deploy Worker
-        uses: risu729/wrangler-deploy-action@v1.0.0
+        uses: risu729/wrangler-deploy-action@16a6985780586b6143b924f88973fb26848caf83
         with:
           mode: production
           working-directory: worker
@@ -136,20 +156,24 @@ and environment-scoped credentials remain under the caller's control.
 
 ## Cloudflare token permissions
 
-For uploads and deployments that do not change ordinary Worker routes, use a
-token restricted to the target account with:
+For version uploads, and for deployments whose Wrangler configuration does not
+declare ordinary Worker routes, use a token restricted to the target account
+with:
 
 - Account / Workers Scripts / Edit
 
 Account / Account Settings / Read is part of Cloudflare's broader
 [Edit Cloudflare Workers token template](https://developers.cloudflare.com/fundamentals/api/reference/template/),
 but it is not an additional minimum permission for this action's Wrangler
-commands.
+commands: the [Worker Account Settings endpoint](https://developers.cloudflare.com/api/resources/workers/subresources/account_settings/methods/get/)
+also accepts Workers Scripts / Edit.
 
-Add Zone / Workers Routes / Edit, scoped to the relevant zone, when Wrangler
-must [create, update, or remove an ordinary Worker route](https://developers.cloudflare.com/api/resources/workers/subresources/routes/methods/create/).
-Ordinary routes rely on DNS records configured separately; add Zone / DNS /
-Edit only if the same workflow separately creates or changes those records.
+If the Wrangler configuration declares any ordinary routes, add Zone / Workers
+Routes / Edit scoped to the relevant zones. Wrangler synchronizes its declared
+routes during deployment, including routes that already exist. Ordinary routes
+require [proxied DNS records configured separately](https://developers.cloudflare.com/workers/configuration/routing/routes/);
+add Zone / DNS / Edit only if the workflow separately creates or changes those
+records.
 
 A Wrangler route with `custom_domain = true` is different: Cloudflare's Workers
 Custom Domains API creates the DNS record and certificate on the Worker's
@@ -160,8 +184,10 @@ Edit or Zone / Workers Routes / Edit for the custom domain.
 Add KV, R2, D1, or other product scopes only when the Worker deployment actively
 manages those resources.
 
-Store the token as an environment-scoped `CLOUDFLARE_API_TOKEN` secret and the
-account ID as `CLOUDFLARE_ACCOUNT_ID`.
+For pull-request previews, store both `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_API_TOKEN` as repository secrets so both are withheld from forks.
+For production, store the token as an environment-scoped secret; the account ID
+may be an environment or repository variable.
 
 ## Runner requirements
 
