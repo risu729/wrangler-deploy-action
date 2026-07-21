@@ -24,7 +24,7 @@ fi
 cd "${resolved_working_directory}"
 
 if ! mise which wrangler >/dev/null 2>&1; then
-	echo "Wrangler is required; configure Wrangler 4.21.0 or newer as a mise tool." >&2
+	echo "Wrangler is required; configure it as a mise tool in the calling project." >&2
 	exit 1
 fi
 
@@ -34,17 +34,4 @@ if ! wrangler_version_output="$(mise exec -- wrangler --version)"; then
 fi
 readonly wrangler_version_output
 
-if [[ ! ${wrangler_version_output} =~ ([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
-	echo "Unable to determine the Wrangler version from: ${wrangler_version_output}" >&2
-	exit 1
-fi
-readonly wrangler_version="${BASH_REMATCH[0]}"
-readonly wrangler_major="${BASH_REMATCH[1]}"
-readonly wrangler_minor="${BASH_REMATCH[2]}"
-
-if ((wrangler_major < 4 || (wrangler_major == 4 && wrangler_minor < 21))); then
-	echo "Wrangler 4.21.0 or newer is required; found ${wrangler_version}." >&2
-	exit 1
-fi
-
-echo "Using Wrangler ${wrangler_version}."
+echo "Using Wrangler ${wrangler_version_output}."

@@ -18,7 +18,7 @@ if [[ $# -eq 4 && $1 == "exec" && $2 == "--" && $3 == "wrangler" && $4 == "--ver
 	if [[ ${FAKE_WRANGLER_MISSING:-} == "1" ]]; then
 		exit 127
 	fi
-	printf '%s\n' "${FAKE_WRANGLER_VERSION:-4.110.0}"
+	printf '%s\n' "${FAKE_WRANGLER_VERSION:-test-version}"
 	exit 0
 fi
 

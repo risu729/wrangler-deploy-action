@@ -424,13 +424,6 @@ url = "https://github.com/astral-sh/uv/releases/download/0.11.29/uv-x86_64-pc-wi
 url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/478261333"
 provenance = "github-attestations"
 
-[[tools.wrangler]]
-version = "4.110.0"
-backend = "npm:wrangler"
-
-[tools.wrangler.options]
-allow_builds = '["esbuild", "sharp", "workerd"]'
-
 [[tools.yamlfmt]]
 version = "0.21.0"
 backend = "aqua:google/yamlfmt"

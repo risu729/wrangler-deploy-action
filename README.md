@@ -199,8 +199,8 @@ repository variable.
 
 The action currently supports Linux runners with Bash and `jq`; both are
 available on GitHub-hosted Ubuntu runners. The caller must install `mise`,
-configure Wrangler 4.21.0 or newer as a mise tool, and check out the Worker
-source before calling the action.
+configure Wrangler as a mise tool, and check out the Worker source before
+calling the action.
 
 ## Development
 

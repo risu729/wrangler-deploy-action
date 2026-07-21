@@ -54,6 +54,7 @@ run_action() {
 	assert_file_contains "${GITHUB_STEP_SUMMARY}" "Cloudflare Workers Deploy Dry Run"
 	assert_file_contains "${FAKE_MISE_LOG}" \
 		"${GITHUB_WORKSPACE}/worker :: which wrangler"
+	[[ ${output} == *"Using Wrangler test-version"* ]]
 }
 
 @test "action rejects a missing Wrangler before deployment" {
@@ -61,14 +62,6 @@ run_action() {
 	run run_action dry-run
 	[ "${status}" -ne 0 ]
 	[[ ${output} == *"Wrangler is required"* ]]
-	! grep -Fq -- "wrangler deploy" "${FAKE_MISE_LOG}"
-}
-
-@test "action rejects an unsupported Wrangler version before deployment" {
-	export FAKE_WRANGLER_VERSION=4.20.0
-	run run_action dry-run
-	[ "${status}" -ne 0 ]
-	[[ ${output} == *"Wrangler 4.21.0 or newer is required; found 4.20.0"* ]]
 	! grep -Fq -- "wrangler deploy" "${FAKE_MISE_LOG}"
 }
 
