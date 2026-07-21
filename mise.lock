@@ -169,6 +169,10 @@ checksum = "sha256:0a583f8980c19bb4b95e64c3785bc824177ff51600e994309851c79e2f23b
 url = "https://github.com/jdx/hk/releases/download/v1.51.0/hk-x86_64-pc-windows-msvc.zip"
 url_api = "https://api.github.com/repos/jdx/hk/releases/assets/476588075"
 
+[[tools."npm:semantic-release"]]
+version = "25.0.8"
+backend = "npm:semantic-release"
+
 [[tools.pinact]]
 version = "4.1.0"
 backend = "aqua:suzuki-shunsuke/pinact"

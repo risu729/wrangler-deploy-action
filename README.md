@@ -184,6 +184,15 @@ available on GitHub-hosted Ubuntu runners. The caller must install `mise`,
 configure Wrangler 4.21.0 or newer as a mise tool, and check out the Worker
 source before calling the action.
 
+## Releases
+
+Semantic Release runs after each push to `main`. Conventional Commit subjects
+determine the next version, and release-worthy changes create a
+`vMAJOR.MINOR.PATCH` tag and GitHub release.
+
+This composite action has no generated `dist/` artifact. Each release tags the
+committed `action.yml` and shell implementation directly.
+
 ## Development
 
 ```sh
