@@ -10,12 +10,90 @@ setup() {
 	export GITHUB_OUTPUT="${BATS_TEST_TMPDIR}/action.output"
 	export GITHUB_STEP_SUMMARY="${BATS_TEST_TMPDIR}/action.summary"
 	export FAKE_MISE_LOG="${BATS_TEST_TMPDIR}/mise.log"
+	export FAKE_WRANGLER_LOG="${BATS_TEST_TMPDIR}/wrangler.log"
 
 	mkdir -p "${GITHUB_WORKSPACE}/worker" "${RUNNER_TEMP}"
 	touch "${GITHUB_WORKSPACE}/worker/wrangler.jsonc"
 	: >"${GITHUB_OUTPUT}"
 	: >"${GITHUB_STEP_SUMMARY}"
 	: >"${FAKE_MISE_LOG}"
+	: >"${FAKE_WRANGLER_LOG}"
+}
+
+@test "action prefers a package-local Wrangler over mise" {
+	mkdir -p "${GITHUB_WORKSPACE}/node_modules/.bin"
+	printf '%s\n' '{"devDependencies":{"wrangler":"4.112.0"}}' \
+		>"${GITHUB_WORKSPACE}/worker/package.json"
+	ln -s "${repo_root}/tests/fake-bin/wrangler" \
+		"${GITHUB_WORKSPACE}/node_modules/.bin/wrangler"
+
+	run run_action dry-run
+	[ "${status}" -eq 0 ]
+	[[ ${output} == *"Using Wrangler test-version via project node_modules."* ]]
+	[ ! -s "${FAKE_MISE_LOG}" ]
+	assert_file_contains "${FAKE_WRANGLER_LOG}" \
+		"${GITHUB_WORKSPACE}/worker :: deploy --config wrangler.jsonc --dry-run"
+}
+
+@test "action ignores an undeclared node_modules Wrangler" {
+	mkdir -p "${GITHUB_WORKSPACE}/node_modules/.bin"
+	ln -s "${repo_root}/tests/fake-bin/wrangler" \
+		"${GITHUB_WORKSPACE}/node_modules/.bin/wrangler"
+
+	run run_action dry-run
+	[ "${status}" -eq 0 ]
+	[[ ${output} == *"Using Wrangler test-version via mise."* ]]
+	assert_file_contains "${FAKE_MISE_LOG}" \
+		"${GITHUB_WORKSPACE}/worker :: which wrangler"
+}
+
+@test "action runs a declared Wrangler through Yarn Plug'n'Play" {
+	printf '%s\n' '{"devDependencies":{"wrangler":"4.112.0"}}' \
+		>"${GITHUB_WORKSPACE}/worker/package.json"
+	touch "${GITHUB_WORKSPACE}/.pnp.cjs"
+	ln -s "${repo_root}/tests/fake-bin/yarn" "${BATS_TEST_TMPDIR}/yarn"
+	export PATH="${BATS_TEST_TMPDIR}:${PATH}"
+
+	run run_action dry-run
+	[ "${status}" -eq 0 ]
+	[[ ${output} == *"Using Wrangler test-version via project Yarn Plug'n'Play."* ]]
+	[ ! -s "${FAKE_MISE_LOG}" ]
+	assert_file_contains "${FAKE_WRANGLER_LOG}" \
+		"${GITHUB_WORKSPACE}/worker :: deploy --config wrangler.jsonc --dry-run"
+}
+
+@test "action diagnoses a missing jq before resolving Wrangler" {
+	local minimal_path="${BATS_TEST_TMPDIR}/minimal-bin"
+	mkdir -p "${minimal_path}"
+	ln -s /usr/bin/env "${minimal_path}/env"
+	ln -s /usr/bin/bash "${minimal_path}/bash"
+	ln -s /usr/bin/dirname "${minimal_path}/dirname"
+
+	run env PATH="${minimal_path}" \
+		GITHUB_WORKSPACE="${GITHUB_WORKSPACE}" \
+		INPUT_WORKING_DIRECTORY=worker \
+		"${repo_root}/src/check-wrangler.sh"
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"jq is required"* ]]
+}
+
+@test "action rejects an absolute working directory" {
+	export INPUT_WORKING_DIRECTORY="${GITHUB_WORKSPACE}/worker"
+
+	run run_action dry-run
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"working-directory must be relative to GITHUB_WORKSPACE"* ]]
+}
+
+@test "action rejects a working-directory symlink outside the workspace" {
+	local outside_directory="${BATS_TEST_TMPDIR}/outside"
+	mkdir -p "${outside_directory}"
+	ln -s "${outside_directory}" "${GITHUB_WORKSPACE}/outside"
+	export INPUT_WORKING_DIRECTORY=outside
+
+	run run_action dry-run
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"working-directory must stay within GITHUB_WORKSPACE"* ]]
 }
 
 assert_file_contains() {
@@ -36,7 +114,7 @@ run_action() {
 	local api_token="${3:-}"
 
 	export INPUT_MODE="${mode}"
-	export INPUT_WORKING_DIRECTORY=worker
+	export INPUT_WORKING_DIRECTORY="${INPUT_WORKING_DIRECTORY:-worker}"
 	export INPUT_CONFIG=wrangler.jsonc
 	export INPUT_ENVIRONMENT=""
 	export INPUT_PREVIEW_ALIAS=pr-42

@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_directory
+# shellcheck source=src/wrangler.sh
+source "${script_directory}/wrangler.sh"
+
 readonly mode="${INPUT_MODE:?mode is required}"
 readonly working_directory="${INPUT_WORKING_DIRECTORY:-.}"
 readonly config="${INPUT_CONFIG:-wrangler.toml}"
@@ -20,26 +25,13 @@ preview-or-dry-run | dry-run | production) ;;
 	;;
 esac
 
-if ! command -v mise >/dev/null 2>&1; then
-	echo "mise is required; install it before invoking this action." >&2
-	exit 1
-fi
-
 if ! command -v jq >/dev/null 2>&1; then
 	echo "jq is required; use a GitHub-hosted Linux runner or install it first." >&2
 	exit 1
 fi
 
-if [[ ${working_directory} == /* ]]; then
-	resolved_working_directory="${working_directory}"
-else
-	resolved_working_directory="${workspace}/${working_directory}"
-fi
-
-if [[ ! -d ${resolved_working_directory} ]]; then
-	echo "Working directory does not exist: ${resolved_working_directory}" >&2
-	exit 1
-fi
+resolved_working_directory="$(resolve_working_directory "${working_directory}" "${workspace}")"
+readonly resolved_working_directory
 
 if [[ ! -f "${resolved_working_directory}/${config}" ]]; then
 	echo "Wrangler configuration does not exist: ${resolved_working_directory}/${config}" >&2
@@ -63,6 +55,7 @@ if [[ ${mode} == "production" && -z ${account_id} ]]; then
 fi
 
 cd "${resolved_working_directory}"
+resolve_wrangler "${resolved_working_directory}" "${workspace}"
 
 wrangler_output_directory="$(mktemp -d "${temporary_root%/}/wrangler-deploy-action.XXXXXX")"
 readonly wrangler_output_directory
@@ -83,13 +76,13 @@ preview-or-dry-run)
 		effective_mode="preview"
 		CLOUDFLARE_ACCOUNT_ID="${account_id}" \
 			CLOUDFLARE_API_TOKEN="${api_token}" \
-			mise exec -- wrangler versions upload \
+			run_wrangler versions upload \
 			--config "${config}" \
 			--preview-alias "${preview_alias}" \
 			"${wrangler_arguments[@]}"
 	else
 		effective_mode="dry-run"
-		mise exec -- wrangler deploy \
+		run_wrangler deploy \
 			--config "${config}" \
 			--dry-run \
 			"${wrangler_arguments[@]}"
@@ -97,7 +90,7 @@ preview-or-dry-run)
 	;;
 dry-run)
 	effective_mode="dry-run"
-	mise exec -- wrangler deploy \
+	run_wrangler deploy \
 		--config "${config}" \
 		--dry-run \
 		"${wrangler_arguments[@]}"
@@ -106,7 +99,7 @@ production)
 	effective_mode="production"
 	CLOUDFLARE_ACCOUNT_ID="${account_id}" \
 		CLOUDFLARE_API_TOKEN="${api_token}" \
-		mise exec -- wrangler deploy \
+		run_wrangler deploy \
 		--config "${config}" \
 		"${wrangler_arguments[@]}"
 	;;
