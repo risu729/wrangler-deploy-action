@@ -33,10 +33,78 @@ jobs:
           install_args: --locked
       - name: Lint
         run: mise run check --lint
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install mise
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        with:
+          version: 2026.7.7
+          install_args: --locked
+      - name: Test
+        run: mise run test
+      - name: Use fake mise and Wrangler
+        run: echo "${GITHUB_WORKSPACE}/tests/fake-bin" >> "${GITHUB_PATH}"
+      - name: Test preview action
+        id: preview
+        uses: ./
+        with:
+          mode: preview-or-dry-run
+          working-directory: tests/fixtures/worker
+          config: wrangler.jsonc
+          preview-alias: pr-42
+          cloudflare-account-id: account
+          cloudflare-api-token: token
+      - name: Check preview outputs
+        env:
+          EFFECTIVE_MODE: ${{ steps.preview.outputs.effective-mode }}
+          PREVIEW_URL: ${{ steps.preview.outputs.preview-url }}
+          PREVIEW_ALIAS_URL: ${{ steps.preview.outputs.preview-alias-url }}
+        run: |
+          [[ "${EFFECTIVE_MODE}" == "preview" ]]
+          [[ "${PREVIEW_URL}" == "https://version-worker.example.workers.dev" ]]
+          [[ "${PREVIEW_ALIAS_URL}" == "https://pr-42-worker.example.workers.dev" ]]
+      - name: Test dry-run fallback action
+        id: dry-run
+        uses: ./
+        with:
+          mode: preview-or-dry-run
+          working-directory: tests/fixtures/worker
+          config: wrangler.jsonc
+          preview-alias: pr-42
+      - name: Check dry-run output
+        env:
+          EFFECTIVE_MODE: ${{ steps.dry-run.outputs.effective-mode }}
+        run: test "${EFFECTIVE_MODE}" = "dry-run"
+      - name: Test production action
+        id: production
+        uses: ./
+        with:
+          mode: production
+          working-directory: tests/fixtures/worker
+          config: wrangler.jsonc
+          cloudflare-account-id: account
+          cloudflare-api-token: token
+      - name: Check production outputs
+        env:
+          EFFECTIVE_MODE: ${{ steps.production.outputs.effective-mode }}
+          DEPLOYMENT_TARGETS: ${{ steps.production.outputs.deployment-targets }}
+        run: |
+          [[ "${EFFECTIVE_MODE}" == "production" ]]
+          [[ "${DEPLOYMENT_TARGETS}" == '["https://one.example.com","example.com/*","schedule: 0 0 * * *"]' ]]
   ci-check:
     name: CI Check
     needs:
       - lint
+      - test
     if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
