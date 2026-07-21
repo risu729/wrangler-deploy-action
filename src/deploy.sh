@@ -175,29 +175,36 @@ production)
 		exit 1
 	fi
 
-	mapfile -t deployment_targets < <(
-		jq -r 'select(.type == "deploy") | (.targets // [])[]' "${wrangler_output_path}"
-	)
-	if [[ ${#deployment_targets[@]} -eq 0 ]]; then
-		echo "Wrangler output at ${wrangler_output_path} did not include deployment targets." >&2
+	if ! jq -es 'any(.[]; .type == "deploy")' "${wrangler_output_path}" >/dev/null; then
+		echo "Wrangler output at ${wrangler_output_path} did not include a deploy entry." >&2
 		exit 1
 	fi
 
+	mapfile -t deployment_targets < <(
+		jq -r 'select(.type == "deploy") | (.targets // [])[]' "${wrangler_output_path}"
+	)
+
 	deployment_targets_json="$(
-		printf '%s\n' "${deployment_targets[@]}" |
-			jq -Rsc 'split("\n") | map(select(length > 0))'
+		jq -sc '[.[] | select(.type == "deploy") | (.targets // [])[]]' \
+			"${wrangler_output_path}"
 	)"
 	write_output deployment-targets "${deployment_targets_json}"
 
 	summary_lines=(
 		"### Cloudflare Workers Production Deploy"
 		""
-		"| Target |"
-		"| - |"
 	)
-	for target in "${deployment_targets[@]}"; do
-		summary_lines+=("| <${target}> |")
-	done
+	if [[ ${#deployment_targets[@]} -eq 0 ]]; then
+		summary_lines+=("Wrangler reported no deployment targets.")
+	else
+		summary_lines+=("#### Targets" "")
+		for target in "${deployment_targets[@]}"; do
+			case "${target}" in
+			http://* | https://*) summary_lines+=("- <${target}>") ;;
+			*) summary_lines+=("- \`${target}\`") ;;
+			esac
+		done
+	fi
 	summary_lines+=("")
 	append_summary "${summary_lines[@]}"
 	;;

@@ -59,13 +59,29 @@ run_action() {
 	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Preview alias: `pr-42`'
 }
 
-@test "production mode reports every deployment target" {
+@test "production mode reports Wrangler deployment targets" {
 	run run_action production account token
 	[ "${status}" -eq 0 ]
 	assert_file_contains "${GITHUB_OUTPUT}" "effective-mode=production"
 	assert_file_contains "${GITHUB_OUTPUT}" \
-		'deployment-targets=["https://one.example.com","https://two.example.com"]'
-	assert_file_contains "${GITHUB_STEP_SUMMARY}" "https://two.example.com"
+		'deployment-targets=["https://one.example.com","example.com/*","schedule: 0 0 * * *"]'
+	assert_file_contains "${GITHUB_STEP_SUMMARY}" '<https://one.example.com>'
+	assert_file_contains "${GITHUB_STEP_SUMMARY}" '`example.com/*`'
+}
+
+@test "production mode accepts a deployment without targets" {
+	export FAKE_WRANGLER_OUTPUT=empty-targets
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-targets=[]'
+	assert_file_contains "${GITHUB_STEP_SUMMARY}" "no deployment targets"
+}
+
+@test "production mode rejects output without a deploy entry" {
+	export FAKE_WRANGLER_OUTPUT=missing-deploy-entry
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"did not include a deploy entry"* ]]
 }
 
 @test "production mode requires Cloudflare credentials" {

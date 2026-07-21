@@ -29,8 +29,20 @@ case "$1 $2" in
 	if [[ " ${*} " == *" --dry-run "* ]]; then
 		exit 0
 	fi
+	if [[ ${FAKE_WRANGLER_OUTPUT:-} == "empty-targets" ]]; then
+		printf '%s\n' \
+			'{"version":1,"type":"deploy","targets":[]}' \
+			>"${output_path}"
+		exit 0
+	fi
+	if [[ ${FAKE_WRANGLER_OUTPUT:-} == "missing-deploy-entry" ]]; then
+		printf '%s\n' \
+			'{"version":1,"type":"wrangler-session"}' \
+			>"${output_path}"
+		exit 0
+	fi
 	printf '%s\n' \
-		'{"version":1,"type":"deploy","targets":["https://one.example.com","https://two.example.com"]}' \
+		'{"version":1,"type":"deploy","targets":["https://one.example.com","example.com/*","schedule: 0 0 * * *"]}' \
 		>"${output_path}"
 	;;
 *)

@@ -42,7 +42,7 @@ outputs:
     description: Stable Workers preview alias URL.
     value: ${{ steps.deploy.outputs.preview-alias-url }}
   deployment-targets:
-    description: JSON array containing every production deployment target.
+    description: JSON array of production deployment targets reported by Wrangler.
     value: ${{ steps.deploy.outputs.deployment-targets }}
 runs:
   using: composite

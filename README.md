@@ -14,8 +14,8 @@ modify the caller's package files.
   repositories without preview credentials.
 - Fails production deployments when Cloudflare credentials are missing.
 - Reads Wrangler's structured output instead of parsing terminal output.
-- Writes preview URLs, every production target, or dry-run status to the GitHub
-  Actions job summary.
+- Writes preview URLs, deployment targets reported by Wrangler, or dry-run
+  status to the GitHub Actions job summary.
 - Exposes the same information as action outputs.
 
 ## Usage
@@ -70,7 +70,7 @@ jobs:
     needs:
       - worker-deploy-check
     if: >-
-      ${{ !cancelled() &&
+      ${{ always() &&
       (contains(needs.*.result, 'failure') ||
       contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-24.04
@@ -84,6 +84,11 @@ Keep the preview account ID in a repository variable and the API token in a
 repository secret. Both are unavailable to `pull_request` workflows from forks,
 so `preview-or-dry-run` performs a dry-run. Supplying only one credential is a
 configuration error.
+
+Authenticated previews require Wrangler 4.21.0 or newer with Preview URLs
+enabled. Enable `preview_urls` when `workers_dev` is disabled. Cloudflare does
+not currently generate Preview URLs for Durable Object Workers or Workers for
+Platforms user Workers; use `dry-run` mode for those Workers.
 
 The example includes a stable `CI Check` guard for branch protection. Add the
 repository's other required jobs to its `needs` list.
@@ -153,7 +158,7 @@ and environment-scoped credentials remain under the caller's control.
 | `effective-mode` | `preview`, `dry-run`, or `production`. |
 | `preview-url` | Version-specific Workers preview URL. |
 | `preview-alias-url` | Stable Workers preview alias URL. |
-| `deployment-targets` | JSON array of production targets. |
+| `deployment-targets` | JSON array of production targets reported by Wrangler. |
 
 ## Cloudflare token permissions
 
@@ -194,8 +199,8 @@ repository variable.
 
 The action currently supports Linux runners with Bash and `jq`; both are
 available on GitHub-hosted Ubuntu runners. The caller must install `mise`,
-configure Wrangler as a mise tool, and check out the Worker source before
-calling the action.
+configure Wrangler 4.21.0 or newer as a mise tool, and check out the Worker
+source before calling the action.
 
 ## Development
 

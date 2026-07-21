@@ -99,13 +99,13 @@ jobs:
           DEPLOYMENT_TARGETS: ${{ steps.production.outputs.deployment-targets }}
         run: |
           [[ "${EFFECTIVE_MODE}" == "production" ]]
-          [[ "${DEPLOYMENT_TARGETS}" == '["https://one.example.com","https://two.example.com"]' ]]
+          [[ "${DEPLOYMENT_TARGETS}" == '["https://one.example.com","example.com/*","schedule: 0 0 * * *"]' ]]
   ci-check:
     name: CI Check
     needs:
       - lint
       - test
-    if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
