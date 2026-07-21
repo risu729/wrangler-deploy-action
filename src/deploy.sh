@@ -24,6 +24,7 @@ if ! command -v mise >/dev/null 2>&1; then
 	echo "mise is required; install it before invoking this action." >&2
 	exit 1
 fi
+
 if ! command -v jq >/dev/null 2>&1; then
 	echo "jq is required; use a GitHub-hosted Linux runner or install it first." >&2
 	exit 1
@@ -61,13 +62,14 @@ if [[ ${mode} == "production" && -z ${account_id} ]]; then
 	exit 1
 fi
 
+cd "${resolved_working_directory}"
+
 wrangler_output_directory="$(mktemp -d "${temporary_root%/}/wrangler-deploy-action.XXXXXX")"
 readonly wrangler_output_directory
 readonly wrangler_output_path="${wrangler_output_directory}/wrangler-output.json"
 trap 'rm -rf -- "${wrangler_output_directory}"' EXIT
 
 export WRANGLER_OUTPUT_FILE_PATH="${wrangler_output_path}"
-cd "${resolved_working_directory}"
 
 wrangler_arguments=()
 if [[ -n ${environment} ]]; then

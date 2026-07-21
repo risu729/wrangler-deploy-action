@@ -49,6 +49,10 @@ jobs:
         with:
           version: 2026.7.7
           install_args: --locked
+      - name: Check Wrangler installation
+        run: |
+          mise which wrangler
+          mise exec -- wrangler --version
       - name: Test
         run: mise run test
       - name: Use fake mise and Wrangler

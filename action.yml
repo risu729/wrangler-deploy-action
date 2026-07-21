@@ -47,6 +47,11 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Check Wrangler
+      shell: bash
+      env:
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: "${GITHUB_ACTION_PATH}/src/check-wrangler.sh"
     - name: Deploy with Wrangler
       id: deploy
       shell: bash

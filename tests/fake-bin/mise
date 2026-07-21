@@ -2,6 +2,26 @@
 
 set -euo pipefail
 
+if [[ -n ${FAKE_MISE_LOG:-} ]]; then
+	printf '%s :: %s\n' "${PWD}" "$*" >>"${FAKE_MISE_LOG}"
+fi
+
+if [[ $# -eq 2 && $1 == "which" && $2 == "wrangler" ]]; then
+	if [[ ${FAKE_WRANGLER_MISSING:-} == "1" ]]; then
+		exit 1
+	fi
+	printf '%s\n' "/fake/wrangler"
+	exit 0
+fi
+
+if [[ $# -eq 4 && $1 == "exec" && $2 == "--" && $3 == "wrangler" && $4 == "--version" ]]; then
+	if [[ ${FAKE_WRANGLER_MISSING:-} == "1" ]]; then
+		exit 127
+	fi
+	printf '%s\n' "${FAKE_WRANGLER_VERSION:-4.110.0}"
+	exit 0
+fi
+
 if [[ $# -lt 4 || $1 != "exec" || $2 != "--" || $3 != "wrangler" ]]; then
 	echo "Unexpected mise invocation: $*" >&2
 	exit 1
