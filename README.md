@@ -63,7 +63,7 @@ jobs:
           working-directory: worker
           config: wrangler.jsonc
           preview-alias: pr-${{ github.event.pull_request.number }}
-          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   ci-check:
     name: CI Check
@@ -80,9 +80,10 @@ jobs:
       - run: exit 1
 ```
 
-Keep both preview credentials as repository secrets. Secrets are unavailable to
-workflows from forks, so both inputs become empty and `preview-or-dry-run`
-performs a dry-run. Supplying only one credential is a configuration error.
+Keep the preview account ID in a repository variable and the API token in a
+repository secret. Both are unavailable to `pull_request` workflows from forks,
+so `preview-or-dry-run` performs a dry-run. Supplying only one credential is a
+configuration error.
 
 The example includes a stable `CI Check` guard for branch protection. Add the
 repository's other required jobs to its `needs` list.
@@ -184,10 +185,10 @@ Edit or Zone / Workers Routes / Edit for the custom domain.
 Add KV, R2, D1, or other product scopes only when the Worker deployment actively
 manages those resources.
 
-For pull-request previews, store both `CLOUDFLARE_ACCOUNT_ID` and
-`CLOUDFLARE_API_TOKEN` as repository secrets so both are withheld from forks.
-For production, store the token as an environment-scoped secret; the account ID
-may be an environment or repository variable.
+For pull-request previews, store `CLOUDFLARE_ACCOUNT_ID` as a repository variable
+and `CLOUDFLARE_API_TOKEN` as a repository secret. For production, store the token
+as an environment-scoped secret; the account ID may be an environment or
+repository variable.
 
 ## Runner requirements
 
