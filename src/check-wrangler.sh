@@ -10,16 +10,13 @@ source "${script_directory}/wrangler.sh"
 readonly working_directory="${INPUT_WORKING_DIRECTORY:-.}"
 readonly workspace="${GITHUB_WORKSPACE:-${PWD}}"
 
-if [[ ${working_directory} == /* ]]; then
-	resolved_working_directory="${working_directory}"
-else
-	resolved_working_directory="${workspace}/${working_directory}"
-fi
-
-if [[ ! -d ${resolved_working_directory} ]]; then
-	echo "Working directory does not exist: ${resolved_working_directory}" >&2
+if ! command -v jq >/dev/null 2>&1; then
+	echo "jq is required; use a GitHub-hosted Linux runner or install it first." >&2
 	exit 1
 fi
+
+resolved_working_directory="$(resolve_working_directory "${working_directory}" "${workspace}")"
+readonly resolved_working_directory
 
 cd "${resolved_working_directory}"
 

@@ -30,16 +30,8 @@ if ! command -v jq >/dev/null 2>&1; then
 	exit 1
 fi
 
-if [[ ${working_directory} == /* ]]; then
-	resolved_working_directory="${working_directory}"
-else
-	resolved_working_directory="${workspace}/${working_directory}"
-fi
-
-if [[ ! -d ${resolved_working_directory} ]]; then
-	echo "Working directory does not exist: ${resolved_working_directory}" >&2
-	exit 1
-fi
+resolved_working_directory="$(resolve_working_directory "${working_directory}" "${workspace}")"
+readonly resolved_working_directory
 
 if [[ ! -f "${resolved_working_directory}/${config}" ]]; then
 	echo "Wrangler configuration does not exist: ${resolved_working_directory}/${config}" >&2
