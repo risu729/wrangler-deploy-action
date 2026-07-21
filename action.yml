@@ -1,7 +1,7 @@
 name: Wrangler Deploy
 description: >-
   Deploy Cloudflare Workers with PR previews, dry-run fallbacks, and Actions summaries.
-author: Taku Kodama
+author: risu729
 branding:
   icon: upload-cloud
   color: orange
