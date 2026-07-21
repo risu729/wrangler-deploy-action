@@ -73,3 +73,10 @@ run_action() {
 	[ "${status}" -ne 0 ]
 	[[ ${output} == *"required for production deployment"* ]]
 }
+
+@test "preview mode identifies a missing Wrangler output file" {
+	export FAKE_WRANGLER_OUTPUT=missing
+	run run_action preview-or-dry-run account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"did not write preview output to"* ]]
+}

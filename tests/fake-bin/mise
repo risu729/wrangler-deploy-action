@@ -8,8 +8,12 @@ if [[ $# -lt 4 || $1 != "exec" || $2 != "--" || $3 != "wrangler" ]]; then
 fi
 shift 3
 
-mkdir -p "${WRANGLER_OUTPUT_FILE_DIRECTORY:?}"
-output_path="${WRANGLER_OUTPUT_FILE_DIRECTORY}/wrangler-output-2026-01-01_00-00-00_000-abcdef.json"
+output_path="${WRANGLER_OUTPUT_FILE_PATH:?}"
+mkdir -p "$(dirname "${output_path}")"
+
+if [[ ${FAKE_WRANGLER_OUTPUT:-} == "missing" ]]; then
+	exit 0
+fi
 
 case "$1 $2" in
 "versions upload")

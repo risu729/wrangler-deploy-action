@@ -63,9 +63,10 @@ fi
 
 wrangler_output_directory="$(mktemp -d "${temporary_root%/}/wrangler-deploy-action.XXXXXX")"
 readonly wrangler_output_directory
+readonly wrangler_output_path="${wrangler_output_directory}/wrangler-output.json"
 trap 'rm -rf -- "${wrangler_output_directory}"' EXIT
 
-export WRANGLER_OUTPUT_FILE_DIRECTORY="${wrangler_output_directory}"
+export WRANGLER_OUTPUT_FILE_PATH="${wrangler_output_path}"
 cd "${resolved_working_directory}"
 
 wrangler_arguments=()
@@ -109,11 +110,6 @@ production)
 	;;
 esac
 
-mapfile -t output_files < <(
-	find "${wrangler_output_directory}" -maxdepth 1 -type f \
-		-name 'wrangler-output-*.json' -print | sort
-)
-
 write_output() {
 	local name="$1"
 	local value="$2"
@@ -143,20 +139,20 @@ dry-run)
 		""
 	;;
 preview)
-	if [[ ${#output_files[@]} -eq 0 ]]; then
-		echo "Unable to find Wrangler preview output." >&2
+	if [[ ! -f ${wrangler_output_path} ]]; then
+		echo "Wrangler did not write preview output to ${wrangler_output_path}." >&2
 		exit 1
 	fi
 
 	preview_url="$(jq -rs \
 		'map(select(.type == "version-upload"))[0].preview_url // empty' \
-		"${output_files[@]}")"
+		"${wrangler_output_path}")"
 	preview_alias_url="$(jq -rs \
 		'map(select(.type == "version-upload"))[0].preview_alias_url // empty' \
-		"${output_files[@]}")"
+		"${wrangler_output_path}")"
 
 	if [[ -z ${preview_url} || -z ${preview_alias_url} ]]; then
-		echo "Wrangler preview output did not include both preview URLs." >&2
+		echo "Wrangler output at ${wrangler_output_path} did not include both preview URLs." >&2
 		exit 1
 	fi
 
@@ -174,16 +170,16 @@ preview)
 		""
 	;;
 production)
-	if [[ ${#output_files[@]} -eq 0 ]]; then
-		echo "Unable to find Wrangler production deployment output." >&2
+	if [[ ! -f ${wrangler_output_path} ]]; then
+		echo "Wrangler did not write production output to ${wrangler_output_path}." >&2
 		exit 1
 	fi
 
 	mapfile -t deployment_targets < <(
-		jq -r 'select(.type == "deploy") | (.targets // [])[]' "${output_files[@]}"
+		jq -r 'select(.type == "deploy") | (.targets // [])[]' "${wrangler_output_path}"
 	)
 	if [[ ${#deployment_targets[@]} -eq 0 ]]; then
-		echo "Wrangler production output did not include deployment targets." >&2
+		echo "Wrangler output at ${wrangler_output_path} did not include deployment targets." >&2
 		exit 1
 	fi
 

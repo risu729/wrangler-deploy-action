@@ -136,20 +136,32 @@ and environment-scoped credentials remain under the caller's control.
 
 ## Cloudflare token permissions
 
-For an existing Worker and existing routes, use a token restricted to the
-target account with:
+For uploads and deployments that do not change ordinary Worker routes, use a
+token restricted to the target account with:
 
 - Account / Workers Scripts / Edit
-- Account / Account Settings / Read
 
-The action does not edit DNS records, so Zone / DNS / Edit is not required.
-Zone / Workers Routes / Edit is only needed when a deployment must create or
-change Worker routes or custom domains. Add KV, R2, D1, or other product scopes
-only when the Worker deployment actively manages those resources.
+Account / Account Settings / Read is part of Cloudflare's broader
+[Edit Cloudflare Workers token template](https://developers.cloudflare.com/fundamentals/api/reference/template/),
+but it is not an additional minimum permission for this action's Wrangler
+commands.
+
+Add Zone / Workers Routes / Edit, scoped to the relevant zone, when Wrangler
+must [create, update, or remove an ordinary Worker route](https://developers.cloudflare.com/api/resources/workers/subresources/routes/methods/create/).
+Ordinary routes rely on DNS records configured separately; add Zone / DNS /
+Edit only if the same workflow separately creates or changes those records.
+
+A Wrangler route with `custom_domain = true` is different: Cloudflare's Workers
+Custom Domains API creates the DNS record and certificate on the Worker's
+behalf. The [Attach Domain endpoint](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/update/)
+accepts Workers Scripts / Edit, so the token does not also need Zone / DNS /
+Edit or Zone / Workers Routes / Edit for the custom domain.
+
+Add KV, R2, D1, or other product scopes only when the Worker deployment actively
+manages those resources.
 
 Store the token as an environment-scoped `CLOUDFLARE_API_TOKEN` secret and the
-account ID as `CLOUDFLARE_ACCOUNT_ID`. Do not grant Zone / DNS / Edit merely for
-routine uploads to already configured routes.
+account ID as `CLOUDFLARE_ACCOUNT_ID`.
 
 ## Runner requirements
 
