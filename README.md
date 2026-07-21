@@ -65,19 +65,6 @@ jobs:
           preview-alias: pr-${{ github.event.pull_request.number }}
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-  ci-check:
-    name: CI Check
-    needs:
-      - worker-deploy-check
-    if: >-
-      ${{ always() &&
-      (contains(needs.*.result, 'failure') ||
-      contains(needs.*.result, 'cancelled')) }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      - run: exit 1
 ```
 
 Keep the preview account ID in a repository variable and the API token in a
@@ -89,9 +76,6 @@ Authenticated previews require Wrangler 4.21.0 or newer with Preview URLs
 enabled. Enable `preview_urls` when `workers_dev` is disabled. Cloudflare does
 not currently generate Preview URLs for Durable Object Workers or Workers for
 Platforms user Workers; use `dry-run` mode for those Workers.
-
-The example includes a stable `CI Check` guard for branch protection. Add the
-repository's other required jobs to its `needs` list.
 
 ### Production deployment
 
