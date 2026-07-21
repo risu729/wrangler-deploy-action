@@ -52,7 +52,6 @@ jobs:
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
           version: 2026.7.7
-          install_args: --locked
       - name: Build Worker
         run: mise run worker:build
       - name: Upload preview or validate deployment
@@ -107,7 +106,6 @@ jobs:
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
           version: 2026.7.7
-          install_args: --locked
       - name: Build Worker
         run: mise run worker:build
       - name: Deploy Worker
