@@ -73,8 +73,8 @@ configuration error.
 
 Authenticated previews require Wrangler 4.21.0 or newer with Preview URLs
 enabled. Enable `preview_urls` when `workers_dev` is disabled. Cloudflare does
-not currently generate Preview URLs for Durable Object Workers or Workers for
-Platforms user Workers; use `dry-run` mode for those Workers.
+not currently generate Preview URLs for Workers that implement Durable Objects
+or Workers for Platforms user Workers; use `dry-run` mode for those Workers.
 
 ### Production deployment
 
@@ -129,7 +129,7 @@ and environment-scoped credentials remain under the caller's control.
 | `working-directory` | No | `.` | Wrangler working directory. |
 | `config` | No | `wrangler.toml` | Wrangler configuration path. |
 | `environment` | No | — | Wrangler environment passed with `--env`. |
-| `preview-alias` | Preview mode | — | Stable preview alias. |
+| `preview-alias` | `preview-or-dry-run` mode | — | Stable preview alias. |
 | `cloudflare-account-id` | Authenticated modes | — | Account ID. |
 | `cloudflare-api-token` | Authenticated modes | — | API token. |
 
@@ -181,8 +181,8 @@ repository variable.
 
 The action currently supports Linux runners with Bash and `jq`; both are
 available on GitHub-hosted Ubuntu runners. The caller must install `mise`,
-configure Wrangler as a mise tool, and check out the Worker source before
-calling the action.
+configure Wrangler 4.21.0 or newer as a mise tool, and check out the Worker
+source before calling the action.
 
 ## Development
 
