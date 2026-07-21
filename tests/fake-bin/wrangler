@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ -n ${FAKE_WRANGLER_LOG:-} ]]; then
+	printf '%s :: %s\n' "${PWD}" "$*" >>"${FAKE_WRANGLER_LOG}"
+fi
+
+if [[ $# -eq 1 && $1 == "--version" ]]; then
+	printf '%s\n' "${FAKE_WRANGLER_VERSION:-test-version}"
+	exit 0
+fi
+
+output_path="${WRANGLER_OUTPUT_FILE_PATH:?}"
+mkdir -p "$(dirname "${output_path}")"
+
+if [[ ${FAKE_WRANGLER_OUTPUT:-} == "missing" ]]; then
+	exit 0
+fi
+
+case "$1 $2" in
+"versions upload")
+	if [[ " ${*} " != *" --preview-alias pr-42 "* ]]; then
+		echo "Preview alias was not forwarded: $*" >&2
+		exit 1
+	fi
+	printf '%s\n' \
+		'{"version":1,"type":"version-upload","preview_url":"https://version-worker.example.workers.dev","preview_alias_url":"https://pr-42-worker.example.workers.dev"}' \
+		>"${output_path}"
+	;;
+"deploy --config")
+	if [[ " ${*} " == *" --dry-run "* ]]; then
+		exit 0
+	fi
+	if [[ ${FAKE_WRANGLER_OUTPUT:-} == "empty-targets" ]]; then
+		printf '%s\n' \
+			'{"version":1,"type":"deploy","targets":[]}' \
+			>"${output_path}"
+		exit 0
+	fi
+	if [[ ${FAKE_WRANGLER_OUTPUT:-} == "missing-deploy-entry" ]]; then
+		printf '%s\n' \
+			'{"version":1,"type":"wrangler-session"}' \
+			>"${output_path}"
+		exit 0
+	fi
+	printf '%s\n' \
+		'{"version":1,"type":"deploy","targets":["https://one.example.com","example.com/*","schedule: 0 0 * * *"]}' \
+		>"${output_path}"
+	;;
+*)
+	echo "Unexpected Wrangler invocation: $*" >&2
+	exit 1
+	;;
+esac

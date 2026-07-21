@@ -3,9 +3,10 @@
 Deploy Cloudflare Workers from GitHub Actions with a consistent preview,
 dry-run, and production workflow.
 
-This action uses the Wrangler version already installed by
-[`mise`](https://mise.jdx.dev/). It does not install another Wrangler version or
-modify the caller's package files.
+This action uses the Wrangler version already declared and installed in the
+caller's `node_modules` or configured through [`mise`](https://mise.jdx.dev/).
+It does not install another Wrangler version or modify the caller's package
+files.
 
 ## Features
 
@@ -20,9 +21,8 @@ modify the caller's package files.
 
 ## Usage
 
-Install the repository's tools and build the Worker before invoking the action.
-Every action reference uses a full commit SHA. Update this action's pre-release
-SHA to the tagged release SHA when v1 is published.
+Install the repository's dependencies or mise tools and build the Worker before
+invoking the action. Every action reference uses a full commit SHA.
 
 ### Pull-request preview or dry-run
 
@@ -180,9 +180,11 @@ repository variable.
 ## Runner requirements
 
 The action currently supports Linux runners with Bash and `jq`; both are
-available on GitHub-hosted Ubuntu runners. The caller must install `mise`,
-configure Wrangler 4.21.0 or newer as a mise tool, and check out the Worker
-source before calling the action.
+available on GitHub-hosted Ubuntu runners. The caller must check out the Worker
+source and make Wrangler 4.21.0 or newer available either as a package
+dependency or a mise tool. A declared package-local Wrangler takes precedence,
+including an installation hoisted between the working directory and workspace
+root. Undeclared transitive installations are ignored.
 
 ## Releases
 

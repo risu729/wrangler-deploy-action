@@ -10,12 +10,41 @@ setup() {
 	export GITHUB_OUTPUT="${BATS_TEST_TMPDIR}/action.output"
 	export GITHUB_STEP_SUMMARY="${BATS_TEST_TMPDIR}/action.summary"
 	export FAKE_MISE_LOG="${BATS_TEST_TMPDIR}/mise.log"
+	export FAKE_WRANGLER_LOG="${BATS_TEST_TMPDIR}/wrangler.log"
 
 	mkdir -p "${GITHUB_WORKSPACE}/worker" "${RUNNER_TEMP}"
 	touch "${GITHUB_WORKSPACE}/worker/wrangler.jsonc"
 	: >"${GITHUB_OUTPUT}"
 	: >"${GITHUB_STEP_SUMMARY}"
 	: >"${FAKE_MISE_LOG}"
+	: >"${FAKE_WRANGLER_LOG}"
+}
+
+@test "action prefers a package-local Wrangler over mise" {
+	mkdir -p "${GITHUB_WORKSPACE}/node_modules/.bin"
+	printf '%s\n' '{"devDependencies":{"wrangler":"4.112.0"}}' \
+		>"${GITHUB_WORKSPACE}/worker/package.json"
+	ln -s "${repo_root}/tests/fake-bin/wrangler" \
+		"${GITHUB_WORKSPACE}/node_modules/.bin/wrangler"
+
+	run run_action dry-run
+	[ "${status}" -eq 0 ]
+	[[ ${output} == *"Using Wrangler test-version via project node_modules."* ]]
+	[ ! -s "${FAKE_MISE_LOG}" ]
+	assert_file_contains "${FAKE_WRANGLER_LOG}" \
+		"${GITHUB_WORKSPACE}/worker :: deploy --config wrangler.jsonc --dry-run"
+}
+
+@test "action ignores an undeclared node_modules Wrangler" {
+	mkdir -p "${GITHUB_WORKSPACE}/node_modules/.bin"
+	ln -s "${repo_root}/tests/fake-bin/wrangler" \
+		"${GITHUB_WORKSPACE}/node_modules/.bin/wrangler"
+
+	run run_action dry-run
+	[ "${status}" -eq 0 ]
+	[[ ${output} == *"Using Wrangler test-version via mise."* ]]
+	assert_file_contains "${FAKE_MISE_LOG}" \
+		"${GITHUB_WORKSPACE}/worker :: which wrangler"
 }
 
 assert_file_contains() {
