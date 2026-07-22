@@ -98,11 +98,51 @@ jobs:
         run: |
           [[ "${EFFECTIVE_MODE}" == "production" ]]
           [[ "${DEPLOYMENT_TARGETS}" == '["https://one.example.com","example.com/*","schedule: 0 0 * * *"]' ]]
+  wrangler-integration:
+    name: Wrangler Integration (${{ matrix.wrangler-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      MISE_IGNORED_CONFIG_PATHS: ${{ github.workspace }}
+      MISE_NODE_VERSION: "22"
+      MISE_WRANGLER_VERSION: ${{ matrix.wrangler-version }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        wrangler-version:
+          - "4.21.0"
+          - latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install mise
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        with:
+          version: 2026.7.7
+          working_directory: ${{ runner.temp }}
+          install_args: node wrangler
+          cache_key: wrangler-integration-{{platform}}-mise-{{version}}-node-{{env.MISE_NODE_VERSION}}-wrangler-{{env.MISE_WRANGLER_VERSION}}
+      - name: Run Wrangler dry run
+        id: wrangler
+        uses: ./
+        with:
+          mode: dry-run
+          working-directory: tests/fixtures/worker
+          config: wrangler.jsonc
+      - name: Check dry-run output
+        env:
+          EFFECTIVE_MODE: ${{ steps.wrangler.outputs.effective-mode }}
+        run: test "${EFFECTIVE_MODE}" = "dry-run"
   ci-check:
     name: CI Check
     needs:
       - lint
       - test
+      - wrangler-integration
     if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
