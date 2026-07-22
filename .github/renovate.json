@@ -1,4 +1,17 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"extends": ["github>risu729/renovate-config#3.18.0"]
+	"extends": ["github>risu729/renovate-config#3.18.0"],
+	"customManagers": [
+		{
+			"customType": "regex",
+			"description": "Updates the self-pinned action in README examples",
+			"managerFilePatterns": ["/^README\\.md$/"],
+			"datasourceTemplate": "github-tags",
+			"depNameTemplate": "risu729/wrangler-deploy-action",
+			"depTypeTemplate": "action",
+			"matchStrings": [
+				"uses: risu729/wrangler-deploy-action@(?<currentDigest>[a-f0-9]{40}) # (?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"
+			]
+		}
+	]
 }
