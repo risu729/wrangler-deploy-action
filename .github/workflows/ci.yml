@@ -102,6 +102,9 @@ jobs:
     name: Wrangler Integration (${{ matrix.wrangler-version }})
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      MISE_NODE_VERSION: "22"
+      MISE_WRANGLER_VERSION: ${{ matrix.wrangler-version }}
     permissions:
       contents: read
     strategy:
@@ -119,10 +122,9 @@ jobs:
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
           version: 2026.7.7
-          mise_toml: |
-            [tools]
-            node = "22"
-            wrangler = "${{ matrix.wrangler-version }}"
+          working_directory: ${{ runner.temp }}
+          install_args: node wrangler
+          cache_key: wrangler-integration-{{platform}}-mise-{{version}}-node-{{env.MISE_NODE_VERSION}}-wrangler-{{env.MISE_WRANGLER_VERSION}}
       - name: Run Wrangler dry run
         id: wrangler
         uses: ./
