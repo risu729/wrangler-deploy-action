@@ -103,6 +103,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
+      MISE_IGNORED_CONFIG_PATHS: ${{ github.workspace }}
       MISE_NODE_VERSION: "22"
       MISE_WRANGLER_VERSION: ${{ matrix.wrangler-version }}
     permissions:
