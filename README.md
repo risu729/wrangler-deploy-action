@@ -144,9 +144,8 @@ and environment-scoped credentials remain under the caller's control.
 
 ## Cloudflare token permissions
 
-For version uploads, and for deployments whose Wrangler configuration does not
-declare ordinary Worker routes, use a token restricted to the target account
-with:
+For version uploads and deployments, start with a token restricted to the
+target account with:
 
 - Account / Workers Scripts / Edit
 
@@ -156,18 +155,33 @@ but it is not an additional minimum permission for this action's Wrangler
 commands: the [Worker Account Settings endpoint](https://developers.cloudflare.com/api/resources/workers/subresources/account_settings/methods/get/)
 also accepts Workers Scripts / Edit.
 
-If the Wrangler configuration declares any ordinary routes, add Zone / Workers
-Routes / Edit scoped to the relevant zones. Wrangler synchronizes its declared
-routes during deployment, including routes that already exist. Ordinary routes
-require [proxied DNS records configured separately](https://developers.cloudflare.com/workers/configuration/routing/routes/);
+User / User Details / Read is also unnecessary. Wrangler may suggest it while
+printing diagnostic account information after another API request fails, but
+the deployment operations do not require it.
+
+For production deployment of every zone referenced by a Custom Domain, also
+grant:
+
+- Zone / Workers Routes / Read
+
+Wrangler currently
+[lists the zone's Worker routes](https://developers.cloudflare.com/api/resources/workers/subresources/routes/methods/list/)
+before publishing any configured route, including a route with
+`custom_domain = true`, so it can detect assignments to another Worker. This
+read-only preflight is why the zone permission is needed even though the
+[Attach Domain endpoint](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/update/)
+itself accepts Workers Scripts / Edit.
+
+If the Wrangler configuration declares an ordinary route, grant Zone / Workers
+Routes / Edit instead; Edit also satisfies the preflight read. Wrangler
+synchronizes ordinary routes during deployment, including routes that already
+exist. Ordinary routes require
+[proxied DNS records configured separately](https://developers.cloudflare.com/workers/configuration/routing/routes/);
 add Zone / DNS / Edit only if the workflow separately creates or changes those
 records.
 
-A Wrangler route with `custom_domain = true` is different: Cloudflare's Workers
-Custom Domains API creates the DNS record and certificate on the Worker's
-behalf. The [Attach Domain endpoint](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/update/)
-accepts Workers Scripts / Edit, so the token does not also need Zone / DNS /
-Edit or Zone / Workers Routes / Edit for the custom domain.
+For a Custom Domain, Cloudflare creates the DNS record and certificate on the
+Worker's behalf. The token therefore does not need Zone / DNS / Edit.
 
 Add KV, R2, D1, or other product scopes only when the Worker deployment actively
 manages those resources.

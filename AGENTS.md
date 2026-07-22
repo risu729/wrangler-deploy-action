@@ -5,3 +5,6 @@
 - Use Conventional Commit subjects.
 - Keep the action focused on Wrangler deployment; callers own workflow triggers,
   permissions, environments, builds, and required-check guards.
+- When documenting minimum Cloudflare permissions, account for Wrangler's route
+  conflict preflight: Custom Domains need Workers Scripts / Edit plus
+  zone-scoped Workers Routes / Read; ordinary routes need Workers Routes / Edit.
