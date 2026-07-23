@@ -56,7 +56,7 @@ jobs:
         run: mise run worker:build
       - name: Upload preview or validate deployment
         id: worker
-        uses: risu729/wrangler-deploy-action@16a6985780586b6143b924f88973fb26848caf83
+        uses: risu729/wrangler-deploy-action@a282705ddae16c69574bfe62cdda8cef47f963cb # v1.1.0
         with:
           mode: preview-or-dry-run
           working-directory: worker
@@ -109,7 +109,7 @@ jobs:
       - name: Build Worker
         run: mise run worker:build
       - name: Deploy Worker
-        uses: risu729/wrangler-deploy-action@16a6985780586b6143b924f88973fb26848caf83
+        uses: risu729/wrangler-deploy-action@a282705ddae16c69574bfe62cdda8cef47f963cb # v1.1.0
         with:
           mode: production
           working-directory: worker
