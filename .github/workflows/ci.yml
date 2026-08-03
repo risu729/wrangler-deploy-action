@@ -53,7 +53,7 @@ jobs:
         run: echo "${GITHUB_WORKSPACE}/tests/fake-bin" >> "${GITHUB_PATH}"
       - name: Test preview action
         id: preview
-        uses: ./
+        uses: $/
         with:
           mode: preview-or-dry-run
           working-directory: tests/fixtures/worker
@@ -72,7 +72,7 @@ jobs:
           [[ "${PREVIEW_ALIAS_URL}" == "https://pr-42-worker.example.workers.dev" ]]
       - name: Test dry-run fallback action
         id: dry-run
-        uses: ./
+        uses: $/
         with:
           mode: preview-or-dry-run
           working-directory: tests/fixtures/worker
@@ -84,7 +84,7 @@ jobs:
         run: test "${EFFECTIVE_MODE}" = "dry-run"
       - name: Test production action
         id: production
-        uses: ./
+        uses: $/
         with:
           mode: production
           working-directory: tests/fixtures/worker
@@ -128,7 +128,7 @@ jobs:
           cache_key: wrangler-integration-{{platform}}-mise-{{version}}-node-{{env.MISE_NODE_VERSION}}-wrangler-{{env.MISE_WRANGLER_VERSION}}
       - name: Run Wrangler dry run
         id: wrangler
-        uses: ./
+        uses: $/
         with:
           mode: dry-run
           working-directory: tests/fixtures/worker

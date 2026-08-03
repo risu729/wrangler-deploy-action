@@ -1,6 +1,8 @@
 name: Actionlint Smoke
 on:
-  # This workflow exists so actionlint can analyze the local composite action via `uses: ./`.
+  # Keep `uses: ./` until actionlint supports self-repository references so it can
+  # continue resolving and validating action.yml.
+  # ref: https://github.com/rhysd/actionlint/issues/711
   # It is intentionally triggered by an unlikely repository_dispatch type instead of normal CI events.
   repository_dispatch:
     types:
