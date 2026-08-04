@@ -110,6 +110,18 @@ assert_file_contains() {
 	fi
 }
 
+assert_file_not_contains() {
+	local path="$1"
+	local unexpected="$2"
+
+	if grep -Fq -- "${unexpected}" "${path}"; then
+		echo "Expected ${path} not to contain: ${unexpected}" >&2
+		echo "Actual contents:" >&2
+		sed -n '1,240p' "${path}" >&2
+		return 1
+	fi
+}
+
 run_action() {
 	local mode="$1"
 	local account_id="${2:-}"
@@ -175,6 +187,25 @@ run_action() {
 	local secrets_file
 	secrets_file="$(sed -n 's/.* --secrets-file \([^ ]*\).*/\1/p' "${FAKE_WRANGLER_LOG}")"
 	[ ! -e "${secrets_file}" ]
+}
+
+@test "production mode preserves special characters in secret values" {
+	local expected=$'quote" backslash\\ newline\nend'
+	export INPUT_SECRETS_JSON
+	INPUT_SECRETS_JSON="$(jq --null-input --compact-output --arg token "${expected}" \
+		'{GH_TOKEN: $token}')"
+
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	[ "$(jq --raw-output '.GH_TOKEN' "${FAKE_WRANGLER_SECRETS_LOG}")" = "${expected}" ]
+}
+
+@test "production mode without secrets omits the secrets-file flag" {
+	unset INPUT_SECRETS_JSON
+
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	assert_file_not_contains "${FAKE_WRANGLER_LOG}" "--secrets-file"
 }
 
 @test "action rejects secrets JSON outside production mode" {

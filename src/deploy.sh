@@ -70,7 +70,9 @@ trap 'rm -rf -- "${wrangler_output_directory}"' EXIT
 
 secrets_file_arguments=()
 if [[ -n ${secrets_json} ]]; then
-	if ! run_wrangler deploy --help | grep -q -- "--secrets-file"; then
+	wrangler_deploy_help="$(run_wrangler deploy --help)"
+	readonly wrangler_deploy_help
+	if [[ ${wrangler_deploy_help} != *"--secrets-file"* ]]; then
 		echo "secrets-json requires Wrangler 4.74.0 or newer." >&2
 		exit 1
 	fi
