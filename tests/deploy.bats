@@ -120,6 +120,7 @@ run_action() {
 	export INPUT_PREVIEW_ALIAS=pr-42
 	export INPUT_CLOUDFLARE_ACCOUNT_ID="${account_id}"
 	export INPUT_CLOUDFLARE_API_TOKEN="${api_token}"
+	export INPUT_SECRETS_FILE="${INPUT_SECRETS_FILE:-}"
 
 	"${repo_root}/src/check-wrangler.sh" || return "$?"
 	"${repo_root}/src/deploy.sh"
@@ -160,6 +161,46 @@ run_action() {
 		'deployment-targets=["https://one.example.com","example.com/*","schedule: 0 0 * * *"]'
 	assert_file_contains "${GITHUB_STEP_SUMMARY}" '<https://one.example.com>'
 	assert_file_contains "${GITHUB_STEP_SUMMARY}" '`example.com/*`'
+}
+
+@test "production mode forwards a secrets file" {
+	local secrets_file="${RUNNER_TEMP}/worker-secrets.env"
+	printf '%s\n' 'GH_TOKEN=test' >"${secrets_file}"
+	export INPUT_SECRETS_FILE="${secrets_file}"
+
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${FAKE_WRANGLER_LOG}" \
+		"deploy --config wrangler.jsonc --secrets-file ${secrets_file}"
+}
+
+@test "action rejects a secrets file outside production mode" {
+	local secrets_file="${RUNNER_TEMP}/worker-secrets.env"
+	printf '%s\n' 'GH_TOKEN=test' >"${secrets_file}"
+	export INPUT_SECRETS_FILE="${secrets_file}"
+
+	run run_action dry-run
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"secrets-file is only supported in production mode"* ]]
+}
+
+@test "production mode rejects a missing secrets file" {
+	export INPUT_SECRETS_FILE="${RUNNER_TEMP}/missing.env"
+
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"Secrets file does not exist"* ]]
+}
+
+@test "production mode rejects Wrangler without secrets-file support" {
+	local secrets_file="${RUNNER_TEMP}/worker-secrets.env"
+	printf '%s\n' 'GH_TOKEN=test' >"${secrets_file}"
+	export INPUT_SECRETS_FILE="${secrets_file}"
+	export FAKE_WRANGLER_SECRETS_FILE_UNSUPPORTED=1
+
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"secrets-file requires Wrangler 4.74.0 or newer"* ]]
 }
 
 @test "production mode accepts a deployment without targets" {

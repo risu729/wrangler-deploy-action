@@ -11,6 +11,13 @@ if [[ $# -eq 1 && $1 == "--version" ]]; then
 	exit 0
 fi
 
+if [[ $# -eq 2 && $1 == "deploy" && $2 == "--help" ]]; then
+	if [[ -z ${FAKE_WRANGLER_SECRETS_FILE_UNSUPPORTED:-} ]]; then
+		printf '%s\n' "--secrets-file"
+	fi
+	exit 0
+fi
+
 output_path="${WRANGLER_OUTPUT_FILE_PATH:?}"
 mkdir -p "$(dirname "${output_path}")"
 

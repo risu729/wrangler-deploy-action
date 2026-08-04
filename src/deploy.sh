@@ -14,6 +14,7 @@ readonly environment="${INPUT_ENVIRONMENT:-}"
 readonly preview_alias="${INPUT_PREVIEW_ALIAS:-}"
 readonly account_id="${INPUT_CLOUDFLARE_ACCOUNT_ID:-}"
 readonly api_token="${INPUT_CLOUDFLARE_API_TOKEN:-}"
+readonly secrets_file="${INPUT_SECRETS_FILE:-}"
 readonly workspace="${GITHUB_WORKSPACE:-${PWD}}"
 readonly temporary_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 
@@ -54,8 +55,26 @@ if [[ ${mode} == "production" && -z ${account_id} ]]; then
 	exit 1
 fi
 
+if [[ -n ${secrets_file} && ${mode} != "production" ]]; then
+	echo "secrets-file is only supported in production mode." >&2
+	exit 1
+fi
+
 cd "${resolved_working_directory}"
 resolve_wrangler "${resolved_working_directory}" "${workspace}"
+
+secrets_file_arguments=()
+if [[ -n ${secrets_file} ]]; then
+	if [[ ! -f ${secrets_file} ]]; then
+		echo "Secrets file does not exist: ${secrets_file}" >&2
+		exit 1
+	fi
+	if ! run_wrangler deploy --help | grep -q -- "--secrets-file"; then
+		echo "secrets-file requires Wrangler 4.74.0 or newer." >&2
+		exit 1
+	fi
+	secrets_file_arguments+=(--secrets-file "${secrets_file}")
+fi
 
 wrangler_output_directory="$(mktemp -d "${temporary_root%/}/wrangler-deploy-action.XXXXXX")"
 readonly wrangler_output_directory
@@ -101,6 +120,7 @@ production)
 		CLOUDFLARE_API_TOKEN="${api_token}" \
 		run_wrangler deploy \
 		--config "${config}" \
+		"${secrets_file_arguments[@]}" \
 		"${wrangler_arguments[@]}"
 	;;
 esac
