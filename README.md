@@ -14,6 +14,7 @@ files.
 - Falls back to a credential-free `wrangler deploy --dry-run` for forks and
   repositories without preview credentials.
 - Fails production deployments when Cloudflare credentials are missing.
+- Atomically uploads optional Worker secrets with production deployments.
 - Reads Wrangler's structured output instead of parsing terminal output.
 - Writes preview URLs, deployment targets reported by Wrangler, or dry-run
   status to the GitHub Actions job summary.
@@ -116,10 +117,17 @@ jobs:
           config: wrangler.jsonc
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          secrets-json: >-
+            {"API_TOKEN":${{ toJSON(secrets.WORKER_API_TOKEN) }}}
 ```
 
 Use `environment: production` on the calling job so deployment protection rules
 and environment-scoped credentials remain under the caller's control.
+`secrets-json` requires Wrangler 4.74.0 or newer. Construct each value with
+`toJSON` so quotes, backslashes, and newlines are escaped correctly. The action
+validates that the input is an object containing only string values, writes it
+to a mode-restricted temporary file, and removes that file when it exits.
+Secrets omitted from the object are preserved from the previous Worker version.
 
 ## Inputs
 
@@ -132,6 +140,7 @@ and environment-scoped credentials remain under the caller's control.
 | `preview-alias` | `preview-or-dry-run` mode | — | Stable preview alias. |
 | `cloudflare-account-id` | Authenticated modes | — | Account ID. |
 | `cloudflare-api-token` | Authenticated modes | — | API token. |
+| `secrets-json` | No | — | JSON object of secrets uploaded with a production deployment. |
 
 ## Outputs
 

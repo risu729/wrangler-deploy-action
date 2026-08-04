@@ -11,6 +11,7 @@ setup() {
 	export GITHUB_STEP_SUMMARY="${BATS_TEST_TMPDIR}/action.summary"
 	export FAKE_MISE_LOG="${BATS_TEST_TMPDIR}/mise.log"
 	export FAKE_WRANGLER_LOG="${BATS_TEST_TMPDIR}/wrangler.log"
+	export FAKE_WRANGLER_SECRETS_LOG="${BATS_TEST_TMPDIR}/wrangler-secrets.json"
 
 	mkdir -p "${GITHUB_WORKSPACE}/worker" "${RUNNER_TEMP}"
 	touch "${GITHUB_WORKSPACE}/worker/wrangler.jsonc"
@@ -18,6 +19,7 @@ setup() {
 	: >"${GITHUB_STEP_SUMMARY}"
 	: >"${FAKE_MISE_LOG}"
 	: >"${FAKE_WRANGLER_LOG}"
+	: >"${FAKE_WRANGLER_SECRETS_LOG}"
 }
 
 @test "action prefers a package-local Wrangler over mise" {
@@ -108,6 +110,18 @@ assert_file_contains() {
 	fi
 }
 
+assert_file_not_contains() {
+	local path="$1"
+	local unexpected="$2"
+
+	if grep -Fq -- "${unexpected}" "${path}"; then
+		echo "Expected ${path} not to contain: ${unexpected}" >&2
+		echo "Actual contents:" >&2
+		sed -n '1,240p' "${path}" >&2
+		return 1
+	fi
+}
+
 run_action() {
 	local mode="$1"
 	local account_id="${2:-}"
@@ -120,6 +134,7 @@ run_action() {
 	export INPUT_PREVIEW_ALIAS=pr-42
 	export INPUT_CLOUDFLARE_ACCOUNT_ID="${account_id}"
 	export INPUT_CLOUDFLARE_API_TOKEN="${api_token}"
+	export INPUT_SECRETS_JSON="${INPUT_SECRETS_JSON:-}"
 
 	"${repo_root}/src/check-wrangler.sh" || return "$?"
 	"${repo_root}/src/deploy.sh"
@@ -160,6 +175,70 @@ run_action() {
 		'deployment-targets=["https://one.example.com","example.com/*","schedule: 0 0 * * *"]'
 	assert_file_contains "${GITHUB_STEP_SUMMARY}" '<https://one.example.com>'
 	assert_file_contains "${GITHUB_STEP_SUMMARY}" '`example.com/*`'
+}
+
+@test "production mode uploads secrets JSON through a temporary file" {
+	export INPUT_SECRETS_JSON='{ "GH_TOKEN": "test" }'
+
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${FAKE_WRANGLER_LOG}" "deploy --config wrangler.jsonc --secrets-file"
+	[ "$(<"${FAKE_WRANGLER_SECRETS_LOG}")" = '{"GH_TOKEN":"test"}' ]
+	local secrets_file
+	secrets_file="$(sed -n 's/.* --secrets-file \([^ ]*\).*/\1/p' "${FAKE_WRANGLER_LOG}")"
+	[ ! -e "${secrets_file}" ]
+}
+
+@test "production mode preserves special characters in secret values" {
+	local expected=$'quote" backslash\\ newline\nend'
+	export INPUT_SECRETS_JSON
+	INPUT_SECRETS_JSON="$(jq --null-input --compact-output --arg token "${expected}" \
+		'{GH_TOKEN: $token}')"
+
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	[ "$(jq --raw-output '.GH_TOKEN' "${FAKE_WRANGLER_SECRETS_LOG}")" = "${expected}" ]
+}
+
+@test "production mode without secrets omits the secrets-file flag" {
+	unset INPUT_SECRETS_JSON
+
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	assert_file_not_contains "${FAKE_WRANGLER_LOG}" "--secrets-file"
+}
+
+@test "action rejects secrets JSON outside production mode" {
+	export INPUT_SECRETS_JSON='{"GH_TOKEN":"test"}'
+
+	run run_action dry-run
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"secrets-json is only supported in production mode"* ]]
+}
+
+@test "production mode rejects malformed secrets JSON" {
+	export INPUT_SECRETS_JSON='{'
+
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"secrets-json must be a JSON object with string values"* ]]
+}
+
+@test "production mode rejects non-string secret values" {
+	export INPUT_SECRETS_JSON='{"GH_TOKEN":1}'
+
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"secrets-json must be a JSON object with string values"* ]]
+}
+
+@test "production mode rejects Wrangler without secrets JSON support" {
+	export INPUT_SECRETS_JSON='{"GH_TOKEN":"test"}'
+	export FAKE_WRANGLER_SECRETS_FILE_UNSUPPORTED=1
+
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *"secrets-json requires Wrangler 4.74.0 or newer"* ]]
 }
 
 @test "production mode accepts a deployment without targets" {

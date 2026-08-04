@@ -31,6 +31,10 @@ inputs:
   cloudflare-api-token:
     description: Cloudflare API token used for authenticated operations.
     required: false
+  secrets-json:
+    description: >-
+      Optional JSON object of secret values uploaded with a production deployment.
+    required: false
 outputs:
   effective-mode:
     description: "Operation performed: preview, dry-run, or production."
@@ -63,4 +67,5 @@ runs:
         INPUT_PREVIEW_ALIAS: ${{ inputs.preview-alias }}
         INPUT_CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
         INPUT_CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        INPUT_SECRETS_JSON: ${{ inputs.secrets-json }}
       run: "${GITHUB_ACTION_PATH}/src/deploy.sh"
