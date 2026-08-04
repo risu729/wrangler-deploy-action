@@ -18,6 +18,14 @@ if [[ $# -eq 2 && $1 == "deploy" && $2 == "--help" ]]; then
 	exit 0
 fi
 
+arguments=("$@")
+for ((index = 0; index < $# - 1; index++)); do
+	if [[ ${arguments[index]} == "--secrets-file" && -n ${FAKE_WRANGLER_SECRETS_LOG:-} ]]; then
+		cp -- "${arguments[index + 1]}" "${FAKE_WRANGLER_SECRETS_LOG}"
+		break
+	fi
+done
+
 output_path="${WRANGLER_OUTPUT_FILE_PATH:?}"
 mkdir -p "$(dirname "${output_path}")"
 

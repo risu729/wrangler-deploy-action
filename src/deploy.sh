@@ -14,7 +14,7 @@ readonly environment="${INPUT_ENVIRONMENT:-}"
 readonly preview_alias="${INPUT_PREVIEW_ALIAS:-}"
 readonly account_id="${INPUT_CLOUDFLARE_ACCOUNT_ID:-}"
 readonly api_token="${INPUT_CLOUDFLARE_API_TOKEN:-}"
-readonly secrets_file="${INPUT_SECRETS_FILE:-}"
+readonly secrets_json="${INPUT_SECRETS_JSON:-}"
 readonly workspace="${GITHUB_WORKSPACE:-${PWD}}"
 readonly temporary_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 
@@ -55,31 +55,36 @@ if [[ ${mode} == "production" && -z ${account_id} ]]; then
 	exit 1
 fi
 
-if [[ -n ${secrets_file} && ${mode} != "production" ]]; then
-	echo "secrets-file is only supported in production mode." >&2
+if [[ -n ${secrets_json} && ${mode} != "production" ]]; then
+	echo "secrets-json is only supported in production mode." >&2
 	exit 1
 fi
 
 cd "${resolved_working_directory}"
 resolve_wrangler "${resolved_working_directory}" "${workspace}"
 
-secrets_file_arguments=()
-if [[ -n ${secrets_file} ]]; then
-	if [[ ! -f ${secrets_file} ]]; then
-		echo "Secrets file does not exist: ${secrets_file}" >&2
-		exit 1
-	fi
-	if ! run_wrangler deploy --help | grep -q -- "--secrets-file"; then
-		echo "secrets-file requires Wrangler 4.74.0 or newer." >&2
-		exit 1
-	fi
-	secrets_file_arguments+=(--secrets-file "${secrets_file}")
-fi
-
 wrangler_output_directory="$(mktemp -d "${temporary_root%/}/wrangler-deploy-action.XXXXXX")"
 readonly wrangler_output_directory
 readonly wrangler_output_path="${wrangler_output_directory}/wrangler-output.json"
 trap 'rm -rf -- "${wrangler_output_directory}"' EXIT
+
+secrets_file_arguments=()
+if [[ -n ${secrets_json} ]]; then
+	if ! run_wrangler deploy --help | grep -q -- "--secrets-file"; then
+		echo "secrets-json requires Wrangler 4.74.0 or newer." >&2
+		exit 1
+	fi
+	secrets_file_path="${wrangler_output_directory}/secrets.json"
+	readonly secrets_file_path
+	umask 077
+	if ! printf '%s' "${secrets_json}" | jq --compact-output --exit-status \
+		'if type == "object" and all(.[]; type == "string") then . else error("invalid secrets") end' \
+		>"${secrets_file_path}"; then
+		echo "secrets-json must be a JSON object with string values." >&2
+		exit 1
+	fi
+	secrets_file_arguments+=(--secrets-file "${secrets_file_path}")
+fi
 
 export WRANGLER_OUTPUT_FILE_PATH="${wrangler_output_path}"
 

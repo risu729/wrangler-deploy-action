@@ -109,12 +109,6 @@ jobs:
           version: 2026.7.7
       - name: Build Worker
         run: mise run worker:build
-      - name: Prepare Worker secrets
-        env:
-          API_TOKEN: ${{ secrets.WORKER_API_TOKEN }}
-        run: |
-          umask 077
-          printf 'API_TOKEN=%s\n' "${API_TOKEN}" > "${RUNNER_TEMP}/worker-secrets.env"
       - name: Deploy Worker
         uses: risu729/wrangler-deploy-action@a282705ddae16c69574bfe62cdda8cef47f963cb # v1.1.0
         with:
@@ -123,13 +117,17 @@ jobs:
           config: wrangler.jsonc
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          secrets-file: ${{ runner.temp }}/worker-secrets.env
+          secrets-json: >-
+            {"API_TOKEN":${{ toJSON(secrets.WORKER_API_TOKEN) }}}
 ```
 
 Use `environment: production` on the calling job so deployment protection rules
 and environment-scoped credentials remain under the caller's control.
-`secrets-file` requires Wrangler 4.74.0 or newer. Secrets omitted from the file
-are preserved from the previous Worker version.
+`secrets-json` requires Wrangler 4.74.0 or newer. Construct each value with
+`toJSON` so quotes, backslashes, and newlines are escaped correctly. The action
+validates that the input is an object containing only string values, writes it
+to a mode-restricted temporary file, and removes that file when it exits.
+Secrets omitted from the object are preserved from the previous Worker version.
 
 ## Inputs
 
@@ -142,7 +140,7 @@ are preserved from the previous Worker version.
 | `preview-alias` | `preview-or-dry-run` mode | — | Stable preview alias. |
 | `cloudflare-account-id` | Authenticated modes | — | Account ID. |
 | `cloudflare-api-token` | Authenticated modes | — | API token. |
-| `secrets-file` | No | — | Dotenv or JSON secrets file uploaded with a production deployment. |
+| `secrets-json` | No | — | JSON object of secrets uploaded with a production deployment. |
 
 ## Outputs
 
