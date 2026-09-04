@@ -170,7 +170,7 @@ url = "https://github.com/jdx/hk/releases/download/v1.51.0/hk-x86_64-pc-windows-
 url_api = "https://api.github.com/repos/jdx/hk/releases/assets/476588075"
 
 [[tools."npm:semantic-release"]]
-version = "25.0.8"
+version = "25.0.9"
 backend = "npm:semantic-release"
 
 [[tools.pinact]]
