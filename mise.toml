@@ -1,7 +1,7 @@
 #:schema https://mise.jdx.dev/schema/mise.json
 
 [tools]
-hk = "1.57.0"
+hk = "1.58.1"
 bats = "1.14.0"
 actionlint = "1.7.12"
 # required for actionlint
