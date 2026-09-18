@@ -13,7 +13,7 @@ tombi = "1.5.5"
 shfmt = "3.14.1"
 yamlfmt = "0.21.0"
 # required for pipx backend
-uv = "0.12.16"
+uv = "0.12.17"
 yamllint = "1.38.0"
 typos = "1.50.2"
 "npm:semantic-release" = "25.0.9"
