@@ -29,7 +29,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          version: 2026.9.1
+          version: 2026.9.12
       - name: Lint
         run: mise run check --lint
   test:
@@ -46,14 +46,14 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          version: 2026.9.1
+          version: 2026.9.12
       - name: Test
         run: mise run test
       - name: Use fake mise and Wrangler
         run: echo "${GITHUB_WORKSPACE}/tests/fake-bin" >> "${GITHUB_PATH}"
       - name: Test preview action
         id: preview
-        uses: ./
+        uses: ./ # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ yet.
         with:
           mode: preview-or-dry-run
           working-directory: tests/fixtures/worker
@@ -72,7 +72,7 @@ jobs:
           [[ "${PREVIEW_ALIAS_URL}" == "https://pr-42-worker.example.workers.dev" ]]
       - name: Test dry-run fallback action
         id: dry-run
-        uses: ./
+        uses: ./ # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ yet.
         with:
           mode: preview-or-dry-run
           working-directory: tests/fixtures/worker
@@ -84,7 +84,7 @@ jobs:
         run: test "${EFFECTIVE_MODE}" = "dry-run"
       - name: Test production action
         id: production
-        uses: ./
+        uses: ./ # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ yet.
         with:
           mode: production
           working-directory: tests/fixtures/worker
@@ -122,13 +122,13 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          version: 2026.9.1
+          version: 2026.9.12
           working_directory: ${{ runner.temp }}
           install_args: node wrangler
           cache_key: wrangler-integration-{{platform}}-mise-{{version}}-node-{{env.MISE_NODE_VERSION}}-wrangler-{{env.MISE_WRANGLER_VERSION}}
       - name: Run Wrangler dry run
         id: wrangler
-        uses: ./
+        uses: ./ # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ yet.
         with:
           mode: dry-run
           working-directory: tests/fixtures/worker

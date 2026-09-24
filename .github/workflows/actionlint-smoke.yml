@@ -23,6 +23,6 @@ jobs:
           persist-credentials: false
       - name: Use local action
         # Dummy values are sufficient because this workflow is not expected to run in normal operation.
-        uses: ./
+        uses: ./ # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ yet.
         with:
           mode: dry-run
