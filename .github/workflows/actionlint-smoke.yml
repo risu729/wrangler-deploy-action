@@ -10,7 +10,7 @@ jobs:
   validate-local-action:
     # Keep a concrete local-action invocation in the repo so workflow linters can validate action.yml.
     name: Validate Local Action
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     concurrency:
       group: actionlint-smoke-${{ github.workflow }}-${{ github.ref }}
