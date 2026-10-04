@@ -1,6 +1,6 @@
 # Cloudflare Deploy Action
 
-Publish prebuilt Cloudflare Workers with `cf`, version previews, and
+Publish prebuilt Cloudflare Workers with `cf`, Workers Previews, version URLs, and
 Worker-scoped tokens. The repository name remains `wrangler-deploy-action`;
 **v2 runs cf**. Existing v1 releases continue to run Wrangler.
 
@@ -18,16 +18,19 @@ version metadata. Human-readable terminal output is never parsed.
 
 | Mode | Behavior |
 | --- | --- |
+| `worker-preview` | Deploy Preview Build Output to a named Workers Preview and verify the resource and latest deployment. |
+| `delete-preview` | Delete the exact named Preview and verify its absence; already missing is success. No build or cf installation is required. |
 | `preview-or-dry-run` | With credentials, upload a version with a stable preview alias. With neither credential, validate without uploading. |
 | `dry-run` | Validate existing Build Output without uploading, rebuilding, or changing traffic. |
 | `production` | Upload a version, deploy that exact version at 100%, then read the deployment back and verify the allocation. |
 
-Every upload uses `cf workers versions create --prebuilt --mode <build-mode>
+Production and legacy version uploads use `cf workers versions create --prebuilt --mode <build-mode>
 --worker <worker>`. Production uses `cf workers deployments create` followed by
 `cf workers deployments get`. No operation calls `cf deploy`.
 
-Previews use version URLs on an existing Worker, not the separate Worker
-Previews resource. They never change production traffic. Enable `previewUrls`
+Legacy `preview-or-dry-run` uses version URLs on an existing Worker.
+Use `worker-preview` for branch and PR environments. Neither changes production
+traffic. For legacy version URLs, enable `previewUrls`
 in `cloudflare.config.ts`; Workers without version URL support should use
 `dry-run` mode.
 
@@ -47,7 +50,52 @@ Replace `V2_COMMIT_SHA` below with the full commit SHA of the selected v2 releas
 Keep workflow triggers, permissions, concurrency, environments, and required
 checks in the calling workflow. Only deploy production after those checks pass.
 
-### Preview or dry-run
+### Workers Previews for pull requests
+
+Build Preview output explicitly, then deploy it with the pinned Cloudflare Vite plugin, then deploy with the pinned cf:
+
+```yaml
+- name: Build Preview
+  working-directory: worker
+  run: bun run cf-vite build --preview
+- name: Deploy Preview
+  uses: risu729/wrangler-deploy-action@V2_COMMIT_SHA
+  with:
+    mode: worker-preview
+    working-directory: worker
+    worker: dotfiles-worker
+    preview-name: pr-${{ github.event.pull_request.number }}
+    cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+```
+
+The action calls `cf previews deploy <preview-name> --prebuilt`. cf rejects
+production output here, and rejects Preview output for production deployment.
+Archive production artifacts before creating Preview output in the same folder.
+Preview names must be lowercase DNS labels of 1–63 characters. Both credentials
+are required; there is no Preview dry-run or authentication-error fallback.
+Run the regular production build and `dry-run` for PRs without credentials.
+
+On PR close, invoke `mode: delete-preview` with the same Worker, Preview name,
+and credentials. Cleanup does not require Build Output or cf. Use trusted base
+workflow code for cleanup, never checkout PR code in `pull_request_target`.
+Serialize deployment and cleanup with the same per-PR concurrency group and
+`cancel-in-progress: false`. Recheck that a PR is open and its head matches the
+build inside that group before deploying, so queued builds cannot recreate a
+closed Preview or replace newer code. These policies belong to the caller.
+
+The pinned cf currently has no Preview delete/read command. The action uses
+Cloudflare's Preview API for readback and cleanup, with the same account and
+Worker as the CLI. It never lists or deletes other Previews. Only error 10025
+with HTTP 404 counts as an absent Preview; auth errors fail. Secrets and
+trigger synchronization inputs remain production-only. Preview resource
+bindings and isolation are defined by the caller's Preview configuration;
+KV, D1, and R2 require explicitly separate bindings for isolated data.
+
+See [Workers Previews](https://developers.cloudflare.com/workers/previews/) and
+[cf Preview builds](https://developers.cloudflare.com/cf/projects/#deploy-a-preview).
+
+### Legacy version URL or dry-run
 
 ```yaml
 - name: Build Worker
@@ -108,10 +156,11 @@ version upload operation. This option is restricted to production mode.
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `mode` | Required | `preview-or-dry-run`, `dry-run`, or `production`. |
+| `mode` | Required | `worker-preview`, `delete-preview`, `preview-or-dry-run`, `dry-run`, or `production`. |
 | `worker` | Required | Exact Worker name in the prebuilt output. |
 | `working-directory` | `.` | Project directory relative to `GITHUB_WORKSPACE`. |
 | `build-mode` | `production` | Mode recorded by the build; passed as cf `--mode`. |
+| `preview-name` | Empty | Required for Workers Preview deployment and deletion. |
 | `preview-alias` | Empty | Required for `preview-or-dry-run`. |
 | `cloudflare-account-id` | Empty | Required for authenticated operations. |
 | `cloudflare-api-token` | Empty | Required for authenticated operations. |
@@ -120,11 +169,13 @@ version upload operation. This option is restricted to production mode.
 
 | Output | Description |
 | --- | --- |
-| `effective-mode` | `preview`, `dry-run`, or `production`. |
+| `effective-mode` | Requested operation; legacy `preview-or-dry-run` resolves to `preview` or `dry-run`. |
 | `version-id` | Uploaded version UUID; empty for dry runs. |
-| `deployment-id` | Verified production deployment UUID; otherwise empty. |
-| `preview-url` | Version preview URL when available. |
+| `deployment-id` | Verified production or Workers Preview deployment ID; otherwise empty. |
+| `preview-url` | Stable Workers Preview URL, or version URL in legacy modes. |
 | `preview-alias-url` | Stable alias URL for preview mode. |
+| `preview-id` | Workers Preview resource ID; empty when cleanup found it already absent. |
+| `deployment-url` | Immutable Workers Preview deployment URL. |
 | `triggers-deployed` | `true` only after requested trigger synchronization succeeds. |
 
 The same results appear in the GitHub Actions job summary. Outputs are written
@@ -139,7 +190,7 @@ Per-Worker tokens cannot manage Custom Domains; an explicit trigger update
 needs suitable permissions for its declared resources. Queue, database, or
 other resource provisioning can need additional product permissions.
 
-The action supports Linux runners with Bash, jq, and a Node.js version supported
+The action supports Linux runners with Bash, jq, curl, and a Node.js version supported
 by the caller's pinned cf (currently Node.js 22.18 or later). It does not create
 or broaden API tokens.
 

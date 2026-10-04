@@ -20,6 +20,21 @@ for ((index = 0; index < $# - 1; index++)); do
 			'. == [{version_id: $id, percentage: 100}]' <<<"${arguments[index + 1]}" >/dev/null
 	fi
 done
+if [[ "$1 $2" == 'previews deploy' ]]; then
+	[[ ${FAKE_CF_FAILURE:-} == upload ]] && exit 1
+	[[ ${FAKE_CF_OUTPUT:-} == missing ]] && exit 0
+	name="$3"
+	[[ ${FAKE_CF_OUTPUT:-} == wrong-name ]] && name=other
+	url=https://pr-42-worker.example.workers.dev
+	[[ ${FAKE_CF_OUTPUT:-} == bad-url ]] && url='https://evil.example/'
+	jq -nc --arg name "${name}" --arg url "${url}" \
+		'{type:"preview",version:1,preview_id:"preview-123",preview_name:$name,preview_slug:$name,preview_urls:[$url],deployment_id:"deployment-456",deployment_urls:["https://deployment-worker.example.workers.dev"]}' >"${WRANGLER_OUTPUT_FILE_PATH:?}"
+	if [[ ${FAKE_CF_OUTPUT:-} == duplicate ]]; then
+		cat "${WRANGLER_OUTPUT_FILE_PATH}" >"${WRANGLER_OUTPUT_FILE_PATH}.copy"
+		cat "${WRANGLER_OUTPUT_FILE_PATH}.copy" >>"${WRANGLER_OUTPUT_FILE_PATH}"
+	fi
+	exit 0
+fi
 case "$1 $2 $3" in
 'workers versions create')
 	[[ " $* " == *' --prebuilt '* ]] || exit 1

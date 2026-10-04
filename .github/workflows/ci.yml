@@ -160,6 +160,23 @@ jobs:
           fi
           cat "${RUNNER_TEMP}/mode.log"
           grep -F 'The Build Output was created with mode' "${RUNNER_TEMP}/mode.log"
+      - name: Build real Preview output
+        working-directory: tests/fixtures/worker
+        run: |
+          bun run cf-vite build --preview
+          jq -e '.buildContext.isPreview == true and .buildContext.mode == "production"' .cloudflare/output/v0/config.json
+      - name: Reject Preview output for production version validation
+        env:
+          INPUT_MODE: dry-run
+          INPUT_WORKING_DIRECTORY: tests/fixtures/worker
+          INPUT_WORKER: worker
+        run: |
+          if src/deploy.sh > "${RUNNER_TEMP}/preview-mode.log" 2>&1; then
+            echo 'Expected cf to reject Preview output for a production version.' >&2
+            exit 1
+          fi
+          cat "${RUNNER_TEMP}/preview-mode.log"
+          grep -F 'Preview' "${RUNNER_TEMP}/preview-mode.log"
   ci-check:
     name: CI Check
     needs:

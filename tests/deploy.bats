@@ -10,6 +10,9 @@ setup() {
 	export GITHUB_OUTPUT="${BATS_TEST_TMPDIR}/action.output"
 	export GITHUB_STEP_SUMMARY="${BATS_TEST_TMPDIR}/action.summary"
 	export FAKE_MISE_LOG="${BATS_TEST_TMPDIR}/mise.log"
+	export FAKE_CURL_LOG="${BATS_TEST_TMPDIR}/curl.log"
+	export FAKE_CURL_STATE="${BATS_TEST_TMPDIR}/curl.state"
+	export INPUT_PREVIEW_NAME=pr-42
 	export FAKE_CF_LOG="${BATS_TEST_TMPDIR}/cf.log"
 	export FAKE_CF_SECRETS_LOG="${BATS_TEST_TMPDIR}/cf-secrets.json"
 
@@ -137,7 +140,9 @@ run_action() {
 	export INPUT_CLOUDFLARE_API_TOKEN="${api_token}"
 	export INPUT_SECRETS_JSON="${INPUT_SECRETS_JSON:-}"
 
-	"${repo_root}/src/check-cf.sh" || return "$?"
+	if [[ ${mode} != delete-preview ]]; then
+		"${repo_root}/src/check-cf.sh" || return "$?"
+	fi
 	"${repo_root}/src/deploy.sh"
 }
 
@@ -317,6 +322,103 @@ run_action() {
 	for scenario in get triggers; do
 		export FAKE_CF_FAILURE="${scenario}" INPUT_DEPLOY_TRIGGERS=true
 		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+	done
+}
+
+@test "Workers Preview deploys prebuilt output and verifies the resource and latest deployment" {
+	run run_action worker-preview account token
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${FAKE_CF_LOG}" 'previews deploy pr-42 --prebuilt --mode production --worker worker'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments'
+	assert_file_contains "${GITHUB_OUTPUT}" 'preview-id=preview-123'
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=deployment-456'
+	assert_file_contains "${FAKE_CURL_LOG}" '/workers/workers/worker/previews/preview-123/deployments/latest'
+	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+}
+
+@test "Workers Preview requires explicit credentials and a safe name" {
+	run run_action worker-preview
+	[ "${status}" -ne 0 ]
+	for name in '' '../other' 'bad name' 'UPPER' '-leading'; do
+		export INPUT_PREVIEW_NAME="${name}"
+		run run_action worker-preview account token
+		[ "${status}" -ne 0 ]
+	done
+	assert_file_not_contains "${FAKE_CF_LOG}" 'previews deploy'
+}
+
+@test "Workers Preview rejects missing duplicate wrong-name and unsafe URL metadata" {
+	for scenario in missing duplicate wrong-name bad-url; do
+		export FAKE_CF_OUTPUT="${scenario}"
+		run run_action worker-preview account token
+		[ "${status}" -ne 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+	done
+	[ ! -e "${FAKE_CURL_LOG}" ]
+}
+
+@test "Workers Preview upload failure cannot fall back to dry run" {
+	export FAKE_CF_FAILURE=upload
+	run run_action worker-preview account token
+	[ "${status}" -ne 0 ]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+	assert_file_not_contains "${FAKE_CF_LOG}" '--dry-run'
+}
+
+@test "Workers Preview mismatched resource or deployment fails verification" {
+	for scenario in wrong-name wrong-id wrong-deployment wrong-url; do
+		export FAKE_PREVIEW_API="${scenario}"
+		run run_action worker-preview account token
+		[ "${status}" -ne 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+	done
+}
+
+@test "cleanup resolves an exact name deletes by ID and verifies absence without cf or a build" {
+	rm "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
+	export FAKE_CF_MISSING=1
+	run run_action delete-preview account token
+	[ "${status}" -eq 0 ]
+	[ ! -s "${FAKE_CF_LOG}" ]
+	assert_file_contains "${FAKE_CURL_LOG}" 'DELETE https://api.cloudflare.com/client/v4/accounts/account/workers/workers/worker/previews/preview-123'
+	assert_file_contains "${GITHUB_OUTPUT}" 'effective-mode=delete-preview'
+	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Verified that the Preview is absent.'
+}
+
+@test "cleanup is idempotent only for a missing Preview" {
+	export FAKE_PREVIEW_API=missing
+	run run_action delete-preview account token
+	[ "${status}" -eq 0 ]
+	assert_file_not_contains "${FAKE_CURL_LOG}" DELETE
+}
+
+@test "cleanup never deletes a mismatched resource" {
+	export FAKE_PREVIEW_API=wrong-name
+	run run_action delete-preview account token
+	[ "${status}" -ne 0 ]
+	assert_file_not_contains "${FAKE_CURL_LOG}" DELETE
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "authentication network and missing Worker errors fail without exposing the token" {
+	for scenario in forbidden network missing-worker malformed; do
+		export FAKE_PREVIEW_API="${scenario}"
+		run run_action delete-preview account sensitive-example-token
+		[ "${status}" -ne 0 ]
+		[[ ${output} != *sensitive-example-token* ]]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+	done
+	assert_file_not_contains "${FAKE_CURL_LOG}" DELETE
+}
+
+@test "failed deletion and a remaining Preview are not reported as success" {
+	for scenario in delete-failure still-present readback-failure; do
+		export FAKE_PREVIEW_API="${scenario}"
+		rm -f "${FAKE_CURL_STATE}"
+		run run_action delete-preview account token
 		[ "${status}" -ne 0 ]
 		[ ! -s "${GITHUB_OUTPUT}" ]
 	done
