@@ -10,47 +10,48 @@ setup() {
 	export GITHUB_OUTPUT="${BATS_TEST_TMPDIR}/action.output"
 	export GITHUB_STEP_SUMMARY="${BATS_TEST_TMPDIR}/action.summary"
 	export FAKE_MISE_LOG="${BATS_TEST_TMPDIR}/mise.log"
-	export FAKE_WRANGLER_LOG="${BATS_TEST_TMPDIR}/wrangler.log"
-	export FAKE_WRANGLER_SECRETS_LOG="${BATS_TEST_TMPDIR}/wrangler-secrets.json"
+	export FAKE_CF_LOG="${BATS_TEST_TMPDIR}/cf.log"
+	export FAKE_CF_SECRETS_LOG="${BATS_TEST_TMPDIR}/cf-secrets.json"
 
 	mkdir -p "${GITHUB_WORKSPACE}/worker" "${RUNNER_TEMP}"
-	touch "${GITHUB_WORKSPACE}/worker/wrangler.jsonc"
+	mkdir -p "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0"
+	touch "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
 	: >"${GITHUB_OUTPUT}"
 	: >"${GITHUB_STEP_SUMMARY}"
 	: >"${FAKE_MISE_LOG}"
-	: >"${FAKE_WRANGLER_LOG}"
-	: >"${FAKE_WRANGLER_SECRETS_LOG}"
+	: >"${FAKE_CF_LOG}"
+	: >"${FAKE_CF_SECRETS_LOG}"
 }
 
-@test "action prefers a package-local Wrangler over mise" {
+@test "action prefers a package-local cf over mise" {
 	mkdir -p "${GITHUB_WORKSPACE}/node_modules/.bin"
-	printf '%s\n' '{"devDependencies":{"wrangler":"4.112.0"}}' \
+	printf '%s\n' '{"devDependencies":{"cf":"1.0.0-beta.12"}}' \
 		>"${GITHUB_WORKSPACE}/worker/package.json"
-	ln -s "${repo_root}/tests/fake-bin/wrangler" \
-		"${GITHUB_WORKSPACE}/node_modules/.bin/wrangler"
+	ln -s "${repo_root}/tests/fake-bin/cf" \
+		"${GITHUB_WORKSPACE}/node_modules/.bin/cf"
 
 	run run_action dry-run
 	[ "${status}" -eq 0 ]
-	[[ ${output} == *"Using Wrangler test-version via project node_modules."* ]]
+	[[ ${output} == *"Using cf test-version via project node_modules."* ]]
 	[ ! -s "${FAKE_MISE_LOG}" ]
-	assert_file_contains "${FAKE_WRANGLER_LOG}" \
-		"${GITHUB_WORKSPACE}/worker :: deploy --config wrangler.jsonc --dry-run"
+	assert_file_contains "${FAKE_CF_LOG}" \
+		"${GITHUB_WORKSPACE}/worker :: workers versions create --prebuilt --mode production --worker worker --dry-run"
 }
 
-@test "action ignores an undeclared node_modules Wrangler" {
+@test "action ignores an undeclared node_modules cf" {
 	mkdir -p "${GITHUB_WORKSPACE}/node_modules/.bin"
-	ln -s "${repo_root}/tests/fake-bin/wrangler" \
-		"${GITHUB_WORKSPACE}/node_modules/.bin/wrangler"
+	ln -s "${repo_root}/tests/fake-bin/cf" \
+		"${GITHUB_WORKSPACE}/node_modules/.bin/cf"
 
 	run run_action dry-run
 	[ "${status}" -eq 0 ]
-	[[ ${output} == *"Using Wrangler test-version via mise."* ]]
+	[[ ${output} == *"Using cf test-version via mise."* ]]
 	assert_file_contains "${FAKE_MISE_LOG}" \
-		"${GITHUB_WORKSPACE}/worker :: which wrangler"
+		"${GITHUB_WORKSPACE}/worker :: which cf"
 }
 
-@test "action runs a declared Wrangler through Yarn Plug'n'Play" {
-	printf '%s\n' '{"devDependencies":{"wrangler":"4.112.0"}}' \
+@test "action runs a declared cf through Yarn Plug'n'Play" {
+	printf '%s\n' '{"devDependencies":{"cf":"1.0.0-beta.12"}}' \
 		>"${GITHUB_WORKSPACE}/worker/package.json"
 	touch "${GITHUB_WORKSPACE}/.pnp.cjs"
 	ln -s "${repo_root}/tests/fake-bin/yarn" "${BATS_TEST_TMPDIR}/yarn"
@@ -58,13 +59,13 @@ setup() {
 
 	run run_action dry-run
 	[ "${status}" -eq 0 ]
-	[[ ${output} == *"Using Wrangler test-version via project Yarn Plug'n'Play."* ]]
+	[[ ${output} == *"Using cf test-version via project Yarn Plug'n'Play."* ]]
 	[ ! -s "${FAKE_MISE_LOG}" ]
-	assert_file_contains "${FAKE_WRANGLER_LOG}" \
-		"${GITHUB_WORKSPACE}/worker :: deploy --config wrangler.jsonc --dry-run"
+	assert_file_contains "${FAKE_CF_LOG}" \
+		"${GITHUB_WORKSPACE}/worker :: workers versions create --prebuilt --mode production --worker worker --dry-run"
 }
 
-@test "action diagnoses a missing jq before resolving Wrangler" {
+@test "action diagnoses a missing jq before resolving cf" {
 	local minimal_path="${BATS_TEST_TMPDIR}/minimal-bin"
 	mkdir -p "${minimal_path}"
 	ln -s /usr/bin/env "${minimal_path}/env"
@@ -74,7 +75,7 @@ setup() {
 	run env PATH="${minimal_path}" \
 		GITHUB_WORKSPACE="${GITHUB_WORKSPACE}" \
 		INPUT_WORKING_DIRECTORY=worker \
-		"${repo_root}/src/check-wrangler.sh"
+		"${repo_root}/src/check-cf.sh"
 	[ "${status}" -ne 0 ]
 	[[ ${output} == *"jq is required"* ]]
 }
@@ -129,14 +130,14 @@ run_action() {
 
 	export INPUT_MODE="${mode}"
 	export INPUT_WORKING_DIRECTORY="${INPUT_WORKING_DIRECTORY:-worker}"
-	export INPUT_CONFIG=wrangler.jsonc
-	export INPUT_ENVIRONMENT=""
+	export INPUT_WORKER=worker
+	export INPUT_BUILD_MODE="${INPUT_BUILD_MODE:-production}"
 	export INPUT_PREVIEW_ALIAS=pr-42
 	export INPUT_CLOUDFLARE_ACCOUNT_ID="${account_id}"
 	export INPUT_CLOUDFLARE_API_TOKEN="${api_token}"
 	export INPUT_SECRETS_JSON="${INPUT_SECRETS_JSON:-}"
 
-	"${repo_root}/src/check-wrangler.sh" || return "$?"
+	"${repo_root}/src/check-cf.sh" || return "$?"
 	"${repo_root}/src/deploy.sh"
 }
 
@@ -144,127 +145,179 @@ run_action() {
 	run run_action preview-or-dry-run
 	[ "${status}" -eq 0 ]
 	assert_file_contains "${GITHUB_OUTPUT}" "effective-mode=dry-run"
-	assert_file_contains "${GITHUB_STEP_SUMMARY}" "Cloudflare Workers Deploy Dry Run"
+	assert_file_contains "${GITHUB_STEP_SUMMARY}" "Cloudflare Workers: dry-run"
 	assert_file_contains "${FAKE_MISE_LOG}" \
-		"${GITHUB_WORKSPACE}/worker :: which wrangler"
-	[[ ${output} == *"Using Wrangler test-version"* ]]
+		"${GITHUB_WORKSPACE}/worker :: which cf"
+	[[ ${output} == *"Using cf test-version"* ]]
 }
 
-@test "action rejects a missing Wrangler before deployment" {
-	export FAKE_WRANGLER_MISSING=1
+@test "action rejects a missing cf before deployment" {
+	export FAKE_CF_MISSING=1
 	run run_action dry-run
 	[ "${status}" -ne 0 ]
-	[[ ${output} == *"Wrangler is required"* ]]
-	! grep -Fq -- "wrangler deploy" "${FAKE_MISE_LOG}"
+	[[ ${output} == *"cf is required"* ]]
+	! grep -Fq -- "cf deploy" "${FAKE_MISE_LOG}"
 }
 
-@test "preview mode reports Wrangler preview URLs" {
+@test "preview mode reports cf preview URLs" {
 	run run_action preview-or-dry-run account token
 	[ "${status}" -eq 0 ]
 	assert_file_contains "${GITHUB_OUTPUT}" "effective-mode=preview"
 	assert_file_contains "${GITHUB_OUTPUT}" \
 		"preview-alias-url=https://pr-42-worker.example.workers.dev"
-	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Preview alias: `pr-42`'
+	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Alias preview: <https://pr-42-worker.example.workers.dev>'
 }
 
-@test "production mode reports Wrangler deployment targets" {
+@test "production publishes the uploaded version at 100 percent and reads it back" {
 	run run_action production account token
 	[ "${status}" -eq 0 ]
-	assert_file_contains "${GITHUB_OUTPUT}" "effective-mode=production"
-	assert_file_contains "${GITHUB_OUTPUT}" \
-		'deployment-targets=["https://one.example.com","example.com/*","schedule: 0 0 * * *"]'
-	assert_file_contains "${GITHUB_STEP_SUMMARY}" '<https://one.example.com>'
-	assert_file_contains "${GITHUB_STEP_SUMMARY}" '`example.com/*`'
+	assert_file_contains "${GITHUB_OUTPUT}" 'version-id=11111111-1111-4111-8111-111111111111'
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
+	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments create --worker worker --strategy percentage --versions [{"version_id":"11111111-1111-4111-8111-111111111111","percentage":100}]'
+	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments get 22222222-2222-4222-8222-222222222222 --worker worker'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
+	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'verified at 100%'
 }
 
-@test "production mode uploads secrets JSON through a temporary file" {
-	export INPUT_SECRETS_JSON='{ "GH_TOKEN": "test" }'
-
+@test "trigger synchronization requires explicit production opt-in" {
+	export INPUT_DEPLOY_TRIGGERS=true
 	run run_action production account token
 	[ "${status}" -eq 0 ]
-	assert_file_contains "${FAKE_WRANGLER_LOG}" "deploy --config wrangler.jsonc --secrets-file"
-	[ "$(<"${FAKE_WRANGLER_SECRETS_LOG}")" = '{"GH_TOKEN":"test"}' ]
-	local secrets_file
-	secrets_file="$(sed -n 's/.* --secrets-file \([^ ]*\).*/\1/p' "${FAKE_WRANGLER_LOG}")"
-	[ ! -e "${secrets_file}" ]
+	assert_file_contains "${FAKE_CF_LOG}" 'workers triggers deploy --prebuilt --mode production --worker worker'
+	assert_file_contains "${GITHUB_OUTPUT}" 'triggers-deployed=true'
 }
 
-@test "production mode preserves special characters in secret values" {
-	local expected=$'quote" backslash\\ newline\nend'
-	export INPUT_SECRETS_JSON
-	INPUT_SECRETS_JSON="$(jq --null-input --compact-output --arg token "${expected}" \
-		'{GH_TOKEN: $token}')"
-
-	run run_action production account token
-	[ "${status}" -eq 0 ]
-	[ "$(jq --raw-output '.GH_TOKEN' "${FAKE_WRANGLER_SECRETS_LOG}")" = "${expected}" ]
-}
-
-@test "production mode without secrets omits the secrets-file flag" {
-	unset INPUT_SECRETS_JSON
-
-	run run_action production account token
-	[ "${status}" -eq 0 ]
-	assert_file_not_contains "${FAKE_WRANGLER_LOG}" "--secrets-file"
-}
-
-@test "action rejects secrets JSON outside production mode" {
-	export INPUT_SECRETS_JSON='{"GH_TOKEN":"test"}'
-
-	run run_action dry-run
-	[ "${status}" -ne 0 ]
-	[[ ${output} == *"secrets-json is only supported in production mode"* ]]
-}
-
-@test "production mode rejects malformed secrets JSON" {
-	export INPUT_SECRETS_JSON='{'
-
-	run run_action production account token
-	[ "${status}" -ne 0 ]
-	[[ ${output} == *"secrets-json must be a JSON object with string values"* ]]
-}
-
-@test "production mode rejects non-string secret values" {
-	export INPUT_SECRETS_JSON='{"GH_TOKEN":1}'
-
-	run run_action production account token
-	[ "${status}" -ne 0 ]
-	[[ ${output} == *"secrets-json must be a JSON object with string values"* ]]
-}
-
-@test "production mode rejects Wrangler without secrets JSON support" {
-	export INPUT_SECRETS_JSON='{"GH_TOKEN":"test"}'
-	export FAKE_WRANGLER_SECRETS_FILE_UNSUPPORTED=1
-
-	run run_action production account token
-	[ "${status}" -ne 0 ]
-	[[ ${output} == *"secrets-json requires Wrangler 4.74.0 or newer"* ]]
-}
-
-@test "production mode accepts a deployment without targets" {
-	export FAKE_WRANGLER_OUTPUT=empty-targets
-	run run_action production account token
-	[ "${status}" -eq 0 ]
-	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-targets=[]'
-	assert_file_contains "${GITHUB_STEP_SUMMARY}" "no deployment targets"
-}
-
-@test "production mode rejects output without a deploy entry" {
-	export FAKE_WRANGLER_OUTPUT=missing-deploy-entry
-	run run_action production account token
-	[ "${status}" -ne 0 ]
-	[[ ${output} == *"did not include a deploy entry"* ]]
-}
-
-@test "production mode requires Cloudflare credentials" {
-	run run_action production
-	[ "${status}" -ne 0 ]
-	[[ ${output} == *"required for production deployment"* ]]
-}
-
-@test "preview mode identifies a missing Wrangler output file" {
-	export FAKE_WRANGLER_OUTPUT=missing
+@test "trigger synchronization cannot be requested for previews" {
+	export INPUT_DEPLOY_TRIGGERS=true
 	run run_action preview-or-dry-run account token
 	[ "${status}" -ne 0 ]
-	[[ ${output} == *"did not write preview output to"* ]]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+}
+
+@test "invalid trigger boolean is rejected" {
+	export INPUT_DEPLOY_TRIGGERS=yes
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'deploy-triggers must be true or false'* ]]
+}
+
+@test "preview uploads never deploy traffic or triggers" {
+	run run_action preview-or-dry-run account token
+	[ "${status}" -eq 0 ]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
+	assert_file_contains "${FAKE_CF_LOG}" '--preview-alias pr-42'
+}
+
+@test "build mode is forwarded without rebuilding" {
+	export INPUT_BUILD_MODE=staging
+	run run_action dry-run
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${FAKE_CF_LOG}" '--prebuilt --mode staging --worker worker --dry-run'
+}
+
+@test "missing prebuilt output fails before upload" {
+	rm "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'Cloudflare Build Output is missing'* ]]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+}
+
+@test "production requires both explicit credentials" {
+	run run_action production
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'required for production deployment'* ]]
+}
+
+@test "partial preview credentials fail instead of falling back" {
+	run run_action preview-or-dry-run account
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'must be supplied together'* ]]
+}
+
+@test "secrets are private temporary files and preserve special characters" {
+	local expected=$'quote" backslash\\ newline\nend'
+	export INPUT_SECRETS_JSON
+	INPUT_SECRETS_JSON="$(jq -nc --arg token "${expected}" '{TOKEN:$token}')"
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	[ "$(jq -r '.TOKEN' "${FAKE_CF_SECRETS_LOG}")" = "${expected}" ]
+	[ "$(cat "${FAKE_CF_SECRETS_LOG}.mode")" = 600 ]
+	local secrets_file
+	secrets_file="$(sed -n 's/.* --secrets-file \([^ ]*\).*/\1/p' "${FAKE_CF_LOG}")"
+	[ ! -e "${secrets_file}" ]
+	[[ ${output} != *"${expected}"* ]]
+}
+
+@test "failed uploads clean up secrets and never deploy" {
+	export INPUT_SECRETS_JSON='{"TOKEN":"test"}' FAKE_CF_FAILURE=upload
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments'
+}
+
+@test "production without secrets omits the secrets file" {
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	assert_file_not_contains "${FAKE_CF_LOG}" '--secrets-file'
+}
+
+@test "secrets cannot be sent with previews or dry runs" {
+	export INPUT_SECRETS_JSON='{"TOKEN":"test"}'
+	run run_action dry-run
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'secrets-json is only supported in production mode'* ]]
+}
+
+@test "malformed or non-string secrets fail without printing values" {
+	for value in '{"TOKEN":"sensitive-example"' '{"TOKEN":1}' '[]'; do
+		export INPUT_SECRETS_JSON="${value}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[[ ${output} == *'secrets-json must be a JSON object with string values'* ]]
+		[[ ${output} != *sensitive-example* ]]
+	done
+}
+
+@test "missing duplicate wrong-Worker or invalid version output cannot deploy" {
+	for scenario in missing duplicate wrong-worker bad-id; do
+		export FAKE_CF_OUTPUT="${scenario}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments'
+	done
+}
+
+@test "preview requires both URLs" {
+	export FAKE_CF_OUTPUT=missing-url
+	run run_action preview-or-dry-run account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'did not include both preview URLs'* ]]
+}
+
+@test "deployment failure prevents triggers and success outputs" {
+	export FAKE_CF_FAILURE=deploy INPUT_DEPLOY_TRIGGERS=true
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "readback mismatch fails the action" {
+	export FAKE_CF_OUTPUT=wrong-percentage
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'Deployment readback did not match'* ]]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "readback and trigger API failures are not reported as success" {
+	for scenario in get triggers; do
+		export FAKE_CF_FAILURE="${scenario}" INPUT_DEPLOY_TRIGGERS=true
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+	done
 }

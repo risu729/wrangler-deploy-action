@@ -1,225 +1,163 @@
-# Wrangler Deploy Action
+# Cloudflare Deploy Action
 
-Deploy Cloudflare Workers from GitHub Actions with a consistent preview,
-dry-run, and production workflow.
+Publish prebuilt Cloudflare Workers with `cf`, version previews, and
+Worker-scoped tokens. The repository name remains `wrangler-deploy-action`;
+**v2 runs cf**. Existing v1 releases continue to run Wrangler.
 
-This action uses the Wrangler version already declared and installed as a
-caller package dependency or configured through [`mise`](https://mise.jdx.dev/).
-It does not install another Wrangler version or modify the caller's package
-files.
+The caller installs and pins `cf`, builds the project, and verifies any artifact
+revision/checksum before invoking this action. The action neither builds nor
+installs tools. It resolves a declared package-local `cf` (including hoisted
+packages and Yarn Plug'n'Play), then a configured mise tool. Undeclared
+transitive binaries are ignored.
 
-## Features
+Tested with `cf@1.0.0-beta.12`. cf is beta: pin its version and verify upgrades.
+The uploader still uses `WRANGLER_OUTPUT_FILE_PATH` internally for structured
+version metadata. Human-readable terminal output is never parsed.
 
-- Uploads stable pull-request previews with `wrangler versions upload`.
-- Falls back to a credential-free `wrangler deploy --dry-run` for forks and
-  repositories without preview credentials.
-- Fails production deployments when Cloudflare credentials are missing.
-- Atomically uploads optional Worker secrets with production deployments.
-- Reads Wrangler's structured output instead of parsing terminal output.
-- Writes preview URLs, deployment targets reported by Wrangler, or dry-run
-  status to the GitHub Actions job summary.
-- Exposes the same information as action outputs.
+## Operations
+
+| Mode | Behavior |
+| --- | --- |
+| `preview-or-dry-run` | With credentials, upload a version with a stable preview alias. With neither credential, validate without uploading. |
+| `dry-run` | Validate existing Build Output without uploading, rebuilding, or changing traffic. |
+| `production` | Upload a version, deploy that exact version at 100%, then read the deployment back and verify the allocation. |
+
+Every upload uses `cf workers versions create --prebuilt --mode <build-mode>
+--worker <worker>`. Production uses `cf workers deployments create` followed by
+`cf workers deployments get`. No operation calls `cf deploy`.
+
+Previews use version URLs on an existing Worker, not the separate Worker
+Previews resource. They never change production traffic. Enable `previewUrls`
+in `cloudflare.config.ts`; Workers without version URL support should use
+`dry-run` mode.
+
+Routes, Custom Domains, cron schedules, queue consumers, and other triggers
+are preserved by default. Set `deploy-triggers: 'true'` explicitly to run
+`cf workers triggers deploy --prebuilt` after a verified production deployment.
+If trigger synchronization fails, the action fails, but the new version has
+already been deployed. No automatic rollback is attempted.
 
 ## Usage
 
-Install the repository's dependencies or mise tools and build the Worker before
-invoking the action. Every action reference uses a full commit SHA.
+Migrate the project to `cloudflare.config.ts` first. Install dependencies from
+the lockfile, then build with `cf build`. A Vite build records `production` by
+default; a different build mode must be passed through `build-mode`.
 
-### Pull-request preview or dry-run
+Replace `V2_COMMIT_SHA` below with the full commit SHA of the selected v2 release.
+Keep workflow triggers, permissions, concurrency, environments, and required
+checks in the calling workflow. Only deploy production after those checks pass.
 
-```yaml
-name: Worker Deploy Check
-on:
-  pull_request:
-    branches:
-      - main
-permissions: {}
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-jobs:
-  worker-deploy-check:
-    name: Worker Deploy Check
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - name: Install mise
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
-        with:
-          version: 2026.7.7
-      - name: Build Worker
-        run: mise run worker:build
-      - name: Upload preview or validate deployment
-        id: worker
-        uses: risu729/wrangler-deploy-action@e943f9681fb250fa0d0a104bd95ea121c510d192 # v1.2.0
-        with:
-          mode: preview-or-dry-run
-          working-directory: worker
-          config: wrangler.jsonc
-          preview-alias: pr-${{ github.event.pull_request.number }}
-          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-```
-
-Keep the preview account ID in a repository variable and the API token in a
-repository secret. Both are unavailable to `pull_request` workflows from forks,
-so `preview-or-dry-run` performs a dry-run. Supplying only one credential is a
-configuration error.
-
-Authenticated previews require Wrangler 4.21.0 or newer with Preview URLs
-enabled. Enable `preview_urls` when `workers_dev` is disabled. Cloudflare does
-not currently generate Preview URLs for Workers that implement Durable Objects
-or Workers for Platforms user Workers; use `dry-run` mode for those Workers.
-
-### Production deployment
+### Preview or dry-run
 
 ```yaml
-name: Deploy Worker
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-permissions: {}
-concurrency:
-  group: worker-production
-  cancel-in-progress: false
-jobs:
-  deploy:
-    name: Deploy
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    environment: production
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - name: Install mise
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
-        with:
-          version: 2026.7.7
-      - name: Build Worker
-        run: mise run worker:build
-      - name: Deploy Worker
-        uses: risu729/wrangler-deploy-action@e943f9681fb250fa0d0a104bd95ea121c510d192 # v1.2.0
-        with:
-          mode: production
-          working-directory: worker
-          config: wrangler.jsonc
-          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          secrets-json: >-
-            {"API_TOKEN":${{ toJSON(secrets.WORKER_API_TOKEN) }}}
+- name: Build Worker
+  working-directory: worker
+  run: bun run cf build
+- name: Preview Worker
+  id: preview
+  uses: risu729/wrangler-deploy-action@V2_COMMIT_SHA
+  with:
+    mode: preview-or-dry-run
+    working-directory: worker
+    worker: dotfiles-worker
+    preview-alias: pr-${{ github.event.pull_request.number }}
+    cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 ```
 
-Use `environment: production` on the calling job so deployment protection rules
-and environment-scoped credentials remain under the caller's control.
-`secrets-json` requires Wrangler 4.74.0 or newer. Construct each value with
-`toJSON` so quotes, backslashes, and newlines are escaped correctly. The action
-validates that the input is an object containing only string values, writes it
-to a mode-restricted temporary file, and removes that file when it exits.
-Secrets omitted from the object are preserved from the previous Worker version.
+Fork PRs without credentials get a dry run. Supplying only one credential is an
+error. Authentication errors from an attempted upload are not masked by a
+fallback. Production always requires both explicit credentials.
 
-## Inputs
+### Production from a validated artifact
 
-| Input | Required | Default | Description |
-| --- | --- | --- | --- |
-| `mode` | Yes | — | `preview-or-dry-run`, `dry-run`, or `production`. |
-| `working-directory` | No | `.` | Wrangler working directory. |
-| `config` | No | `wrangler.toml` | Wrangler configuration path. |
-| `environment` | No | — | Wrangler environment passed with `--env`. |
-| `preview-alias` | `preview-or-dry-run` mode | — | Stable preview alias. |
-| `cloudflare-account-id` | Authenticated modes | — | Account ID. |
-| `cloudflare-api-token` | Authenticated modes | — | API token. |
-| `secrets-json` | No | — | JSON object of secrets uploaded with a production deployment. |
+Restore and verify the earlier build in the Worker project directory before
+this step. The Build Output must be at `.cloudflare/output/v0`.
 
-## Outputs
+```yaml
+- name: Deploy validated Worker
+  id: production
+  uses: risu729/wrangler-deploy-action@V2_COMMIT_SHA
+  with:
+    mode: production
+    working-directory: worker
+    worker: dotfiles-worker
+    build-mode: production
+    cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+```
+
+For environment-scoped credentials and deployment approvals, set
+`environment: production` on the calling job. Configure concurrency in that
+workflow so production deployments cannot race.
+
+Optional Worker secrets are uploaded with the new production version:
+
+```yaml
+    secrets-json: >-
+      {"API_TOKEN":${{ toJSON(secrets.WORKER_API_TOKEN) }}}
+```
+
+Use `toJSON` on each value. The action validates a JSON object of strings,
+creates a private temporary file, and removes it on success or failure. It
+passes the file to `cf workers versions create --secrets-file`; it does not run
+separate secret updates. Secrets omitted from the object are preserved by the
+version upload operation. This option is restricted to production mode.
+
+## Inputs and outputs
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `mode` | Required | `preview-or-dry-run`, `dry-run`, or `production`. |
+| `worker` | Required | Exact Worker name in the prebuilt output. |
+| `working-directory` | `.` | Project directory relative to `GITHUB_WORKSPACE`. |
+| `build-mode` | `production` | Mode recorded by the build; passed as cf `--mode`. |
+| `preview-alias` | Empty | Required for `preview-or-dry-run`. |
+| `cloudflare-account-id` | Empty | Required for authenticated operations. |
+| `cloudflare-api-token` | Empty | Required for authenticated operations. |
+| `secrets-json` | Empty | String-valued JSON object for production version upload. |
+| `deploy-triggers` | `false` | Opt-in trigger synchronization, production only. |
 
 | Output | Description |
 | --- | --- |
 | `effective-mode` | `preview`, `dry-run`, or `production`. |
-| `preview-url` | Version-specific Workers preview URL. |
-| `preview-alias-url` | Stable Workers preview alias URL. |
-| `deployment-targets` | JSON array of production targets reported by Wrangler. |
+| `version-id` | Uploaded version UUID; empty for dry runs. |
+| `deployment-id` | Verified production deployment UUID; otherwise empty. |
+| `preview-url` | Version preview URL when available. |
+| `preview-alias-url` | Stable alias URL for preview mode. |
+| `triggers-deployed` | `true` only after requested trigger synchronization succeeds. |
 
-## Cloudflare token permissions
+The same results appear in the GitHub Actions job summary. Outputs are written
+only after the requested operation completes successfully.
 
-For version uploads and deployments, start with a token restricted to the
-target account with:
+## Permissions and runner requirements
 
-- Account / Workers Scripts / Edit
+Use `Individual Workers Editor` restricted to the existing target Worker for
+version uploads and deployments. Always supply the account ID as well. The
+default deployment preserves an existing Custom Domain without updating it.
+Per-Worker tokens cannot manage Custom Domains; an explicit trigger update
+needs suitable permissions for its declared resources. Queue, database, or
+other resource provisioning can need additional product permissions.
 
-Account / Account Settings / Read is part of Cloudflare's broader
-[Edit Cloudflare Workers token template](https://developers.cloudflare.com/fundamentals/api/reference/template/),
-but it is not an additional minimum permission for this action's Wrangler
-commands: the [Worker Account Settings endpoint](https://developers.cloudflare.com/api/resources/workers/subresources/account_settings/methods/get/)
-also accepts Workers Scripts / Edit.
+The action supports Linux runners with Bash, jq, and a Node.js version supported
+by the caller's pinned cf (currently Node.js 22.18 or later). It does not create
+or broaden API tokens.
 
-User / User Details / Read is also unnecessary. Wrangler may suggest it while
-printing diagnostic account information after another API request fails, but
-the deployment operations do not require it.
+## Migrating from v1
 
-For production deployment of every zone referenced by a Custom Domain, also
-grant:
+- Migrate the project and pin cf, then build before invoking the action.
+- Replace `config` and `environment` with `worker` and `build-mode`.
+- `mode` still selects the action operation; `build-mode` selects cf's mode.
+- Replace `deployment-targets` consumers with `version-id` and `deployment-id`.
+- Trigger synchronization is now explicit; production no longer updates routes
+  or Custom Domains by default.
+- Pin a v2 release commit. Existing v1 tags and commit references are unchanged.
 
-- Zone / Workers Routes / Read
+See the [v1 documentation](https://github.com/risu729/wrangler-deploy-action/blob/v1.2.0/README.md)
+for Wrangler callers and the [cf migration guide](https://developers.cloudflare.com/cf/wrangler/migrate/)
+for project conversion.
 
-Wrangler currently
-[lists the zone's Worker routes](https://developers.cloudflare.com/api/resources/workers/subresources/routes/methods/list/)
-before publishing any configured route, including a route with
-`custom_domain = true`, so it can detect assignments to another Worker. This
-read-only preflight is why the zone permission is needed even though the
-[Attach Domain endpoint](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/update/)
-itself accepts Workers Scripts / Edit.
-
-If the Wrangler configuration declares an ordinary route, grant Zone / Workers
-Routes / Edit instead; Edit also satisfies the preflight read. Wrangler
-synchronizes ordinary routes during deployment, including routes that already
-exist. Ordinary routes require
-[proxied DNS records configured separately](https://developers.cloudflare.com/workers/configuration/routing/routes/);
-add Zone / DNS / Edit only if the workflow separately creates or changes those
-records.
-
-For a Custom Domain, Cloudflare creates the DNS record and certificate on the
-Worker's behalf. The token therefore does not need Zone / DNS / Edit.
-
-Add KV, R2, D1, or other product scopes only when the Worker deployment actively
-manages those resources.
-
-For pull-request previews, store `CLOUDFLARE_ACCOUNT_ID` as a repository variable
-and `CLOUDFLARE_API_TOKEN` as a repository secret. For production, store the token
-as an environment-scoped secret; the account ID may be an environment or
-repository variable.
-
-## Runner requirements
-
-The action currently supports Linux runners with Bash and `jq`; both are
-available on GitHub-hosted Ubuntu runners. The caller must check out the Worker
-source and make Wrangler 4.21.0 or newer available either as a package
-dependency or a mise tool. Package dependencies require a Wrangler-supported
-Node.js version. A declared package-local Wrangler takes precedence, including
-an installation hoisted between the working directory and workspace root or a
-Yarn Plug'n'Play installation. Undeclared transitive installations are ignored.
-
-## Releases
-
-Semantic Release runs after each push to `main`. Conventional Commit subjects
-determine the next version, and release-worthy changes create a
-`vMAJOR.MINOR.PATCH` tag and GitHub release.
-
-This composite action has no generated `dist/` artifact. Each release tags the
-committed `action.yml` and shell implementation directly.
-
-## Development
+## Development and releases
 
 ```sh
 mise install
@@ -227,7 +165,13 @@ mise run check --lint
 mise run test
 ```
 
-Run `mise run check` to apply safe formatting fixes before committing.
+CI also invokes the composite action with a fake CLI and builds a real fixture
+with pinned cf before a credential-free dry run. Real scoped-token preview and
+production validation is performed in dotfiles.
+
+Semantic Release runs on main. Conventional Commit breaking-change markers
+create major releases. Releases tag the committed composite action and shell
+scripts directly; there is no generated action bundle.
 
 ## License
 

@@ -4,8 +4,8 @@ set -euo pipefail
 
 script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_directory
-# shellcheck source=src/wrangler.sh
-source "${script_directory}/wrangler.sh"
+# shellcheck source=src/cf.sh
+source "${script_directory}/cf.sh"
 
 readonly working_directory="${INPUT_WORKING_DIRECTORY:-.}"
 readonly workspace="${GITHUB_WORKSPACE:-${PWD}}"
@@ -20,12 +20,12 @@ readonly resolved_working_directory
 
 cd "${resolved_working_directory}"
 
-resolve_wrangler "${resolved_working_directory}" "${workspace}"
+resolve_cf "${resolved_working_directory}" "${workspace}"
 
-if ! wrangler_version_output="$(run_wrangler --version)"; then
-	echo "Unable to run the resolved Wrangler executable." >&2
+if ! cf_version_output="$(run_cf --version)"; then
+	echo "Unable to run the resolved cf executable." >&2
 	exit 1
 fi
-readonly wrangler_version_output
+readonly cf_version_output
 
-echo "Using Wrangler ${wrangler_version_output} via ${wrangler_source}."
+echo "Using cf ${cf_version_output} via ${cf_source}."
