@@ -30,7 +30,7 @@ jobs:
       - name: Release
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: semantic-release
+        run: mise run --skip-tools release
   actions-timeline:
     name: Generate Actions Timeline
     needs:

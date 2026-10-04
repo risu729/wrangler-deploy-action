@@ -18,5 +18,9 @@ if [[ $# -lt 4 || $1 != "exec" || $2 != "--" || $3 != "cf" ]]; then
 	echo "Unexpected mise invocation: $*" >&2
 	exit 1
 fi
+if [[ ${MISE_EXEC_AUTO_INSTALL:-true} != false ]]; then
+	echo "mise would install missing caller tools during deployment." >&2
+	exit 1
+fi
 shift 3
 "${BASH_SOURCE[0]%/*}/cf" "$@"
