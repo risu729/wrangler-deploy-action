@@ -41,6 +41,15 @@ setup() {
 		"${GITHUB_WORKSPACE}/worker :: workers versions create --prebuilt --mode production --worker worker --dry-run"
 }
 
+@test "mise fallback disables automatic installation from the caller config" {
+	export MISE_EXEC_AUTO_INSTALL=true
+
+	run run_action dry-run
+	[ "${status}" -eq 0 ]
+	[[ ${output} == *"Using cf test-version via mise."* ]]
+	assert_file_contains "${GITHUB_OUTPUT}" "effective-mode=dry-run"
+}
+
 @test "action ignores an undeclared node_modules cf" {
 	mkdir -p "${GITHUB_WORKSPACE}/node_modules/.bin"
 	ln -s "${repo_root}/tests/fake-bin/cf" \

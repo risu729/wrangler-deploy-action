@@ -53,7 +53,7 @@ checks in the calling workflow. Only deploy production after those checks pass.
 
 ### Workers Previews for pull requests
 
-Build Preview output explicitly, then deploy it with the pinned Cloudflare Vite plugin, then deploy with the pinned cf:
+Build Preview output with the pinned Cloudflare Vite plugin, then deploy with the pinned cf:
 
 ```yaml
 - name: Build Preview
@@ -215,13 +215,17 @@ for project conversion.
 mise install
 mise run check --lint
 mise run test
+mise run test-integration
 ```
 
-CI also invokes the composite action with a fake CLI and builds a real fixture
-with pinned cf before a credential-free dry run. Real scoped-token preview and
+CI also invokes the composite action with a fake CLI. `test-integration` runs
+the same real cf checks locally and in CI: it builds the fixture, validates the
+prebuilt output without credentials or mutations, and checks that mismatched
+build modes and Preview output are rejected for production version uploads.
+Node.js and Bun versions are pinned in mise. Real scoped-token preview and
 production validation is performed in dotfiles.
 
-Semantic Release runs on main. Conventional Commit breaking-change markers
+Semantic Release runs on main through `mise run release`. Conventional Commit breaking-change markers
 create major releases. Releases tag the committed composite action and shell
 scripts directly; there is no generated action bundle.
 

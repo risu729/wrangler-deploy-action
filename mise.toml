@@ -1,6 +1,8 @@
 #:schema https://mise.jdx.dev/schema/mise.json
 
 [tools]
+node = "26.10.0"
+bun = "1.4.2"
 hk = "2.5.0"
 bats = "1.14.0"
 actionlint = "1.7.12"
@@ -31,3 +33,15 @@ run = "hk {% if usage.lint %}check{% else %}fix{% endif %} --all --no-progress -
 [tasks.test]
 description = "Run deploy action tests."
 run = "bats tests/deploy.bats"
+
+[tasks.release]
+description = "Publish a release from CI using Conventional Commits."
+run = "semantic-release"
+
+[tasks.test-integration]
+description = "Run the complete real cf integration checks locally."
+run = [
+  { task = "integration:build" },
+  { task = "integration:dry-run" },
+  { task = "integration:verify" },
+]

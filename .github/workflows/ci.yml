@@ -109,10 +109,6 @@ jobs:
     name: cf Integration
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    env:
-      MISE_IGNORED_CONFIG_PATHS: ${{ github.workspace }}
-      MISE_NODE_VERSION: "26.10.0"
-      MISE_BUN_VERSION: "1.4.2"
     permissions:
       contents: read
     steps:
@@ -124,15 +120,9 @@ jobs:
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.10.2
-          working_directory: ${{ runner.temp }}
-          install_args: node@26.10.0 bun@1.4.2
-          cache_key: cf-integration-{{platform}}-mise-{{version}}-node-26.10.0-bun-1.4.2
+          install_args: node bun
       - name: Build real fixture with pinned cf
-        working-directory: tests/fixtures/worker
-        run: |
-          bun install --frozen-lockfile
-          bun run cf build
-          find .cloudflare/output -type f -print0 | sort -z | xargs -0 sha256sum > "${RUNNER_TEMP}/build.sha256"
+        run: mise run --skip-tools integration:build
       - name: Validate prebuilt Worker with the action
         id: cf
         uses: ./ # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ yet.
@@ -140,43 +130,12 @@ jobs:
           mode: dry-run
           working-directory: tests/fixtures/worker
           worker: worker
-      - name: Check output and unchanged build
-        working-directory: tests/fixtures/worker
+      - name: Check output and verify real cf behavior
         env:
           EFFECTIVE_MODE: ${{ steps.cf.outputs.effective-mode }}
         run: |
           test "${EFFECTIVE_MODE}" = dry-run
-          sha256sum --check "${RUNNER_TEMP}/build.sha256"
-      - name: Reject a mismatched build mode
-        env:
-          INPUT_MODE: dry-run
-          INPUT_WORKING_DIRECTORY: tests/fixtures/worker
-          INPUT_WORKER: worker
-          INPUT_BUILD_MODE: staging
-        run: |
-          if src/deploy.sh > "${RUNNER_TEMP}/mode.log" 2>&1; then
-            echo 'Expected cf to reject the mismatched mode.' >&2
-            exit 1
-          fi
-          cat "${RUNNER_TEMP}/mode.log"
-          grep -F 'The Build Output was created with mode' "${RUNNER_TEMP}/mode.log"
-      - name: Build real Preview output
-        working-directory: tests/fixtures/worker
-        run: |
-          bun run cf-vite build --preview
-          jq -e '.buildContext.isPreview == true and .buildContext.mode == "production"' .cloudflare/output/v0/config.json
-      - name: Reject Preview output for production version validation
-        env:
-          INPUT_MODE: dry-run
-          INPUT_WORKING_DIRECTORY: tests/fixtures/worker
-          INPUT_WORKER: worker
-        run: |
-          if src/deploy.sh > "${RUNNER_TEMP}/preview-mode.log" 2>&1; then
-            echo 'Expected cf to reject Preview output for a production version.' >&2
-            exit 1
-          fi
-          cat "${RUNNER_TEMP}/preview-mode.log"
-          grep -F 'Preview' "${RUNNER_TEMP}/preview-mode.log"
+          mise run --skip-tools integration:verify
   ci-check:
     name: CI Check
     needs:

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#MISE description="Build the pinned real cf fixture and record its checksums."
+#MISE dir="{{ config_root }}/tests/fixtures/worker"
+
+set -euo pipefail
+
+bun install --frozen-lockfile
+bun run cf build
+find .cloudflare/output -type f -print0 | sort -z | xargs -0 sha256sum >.cloudflare/build.sha256

@@ -105,7 +105,8 @@ resolve_cf() {
 	fi
 
 	if command -v mise >/dev/null 2>&1 && mise which cf >/dev/null 2>&1; then
-		cf_command=(mise exec -- cf)
+		# Resolve tools without installing other missing tools from the caller config.
+		cf_command=(env MISE_EXEC_AUTO_INSTALL=false mise exec -- cf)
 		cf_source="mise"
 		return 0
 	fi
