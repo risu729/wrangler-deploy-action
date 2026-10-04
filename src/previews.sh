@@ -41,9 +41,9 @@ if [[ ${mode} == worker-preview ]]; then
 	[[ -f .cloudflare/output/v0/config.json ]] || fail 'Cloudflare Build Output is missing; build a Preview first.'
 	resolve_cf "${resolved_working_directory}" "${workspace}"
 	export CLOUDFLARE_ACCOUNT_ID="${account_id}" CLOUDFLARE_API_TOKEN="${api_token}" CI=true
-	export WRANGLER_OUTPUT_FILE_PATH="${output_directory}/upload.jsonl"
-	run_cf previews deploy "${preview_name}" --prebuilt --mode "${build_mode}" --worker "${worker}"
-	[[ -f ${WRANGLER_OUTPUT_FILE_PATH} ]] || fail 'cf did not write structured Preview output.'
+	preview_output="${output_directory}/upload.json"
+	run_cf previews deploy "${preview_name}" --prebuilt --mode "${build_mode}" --worker "${worker}" >"${preview_output}"
+	[[ -f ${preview_output} ]] || fail 'cf did not write structured Preview output.'
 	if ! upload="$(jq -sce --arg name "${preview_name}" --arg id "${id_pattern}" --arg url "${url_pattern}" '
 		map(select(.type == "preview"))
 		| if length == 1 then .[0] else error("Expected one Preview") end
@@ -52,7 +52,7 @@ if [[ ${mode} == worker-preview ]]; then
 		| select(.deployment_id | type == "string" and test($id))
 		| select(.preview_urls | type == "array" and length > 0 and all(.[]; type == "string" and test($url)))
 		| select(.deployment_urls | type == "array" and length > 0 and all(.[]; type == "string" and test($url)))
-	' "${WRANGLER_OUTPUT_FILE_PATH}")"; then
+	' "${preview_output}")"; then
 		fail 'cf output did not identify exactly one deployment of the requested Preview.'
 	fi
 	preview_id="$(jq -r '.preview_id' <<<"${upload}")"

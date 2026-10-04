@@ -28,10 +28,9 @@ if [[ "$1 $2" == 'previews deploy' ]]; then
 	url=https://pr-42-worker.example.workers.dev
 	[[ ${FAKE_CF_OUTPUT:-} == bad-url ]] && url='https://evil.example/'
 	jq -nc --arg name "${name}" --arg url "${url}" \
-		'{type:"preview",version:1,preview_id:"preview-123",preview_name:$name,preview_slug:$name,preview_urls:[$url],deployment_id:"deployment-456",deployment_urls:["https://deployment-worker.example.workers.dev"]}' >"${WRANGLER_OUTPUT_FILE_PATH:?}"
+		'{type:"preview",version:1,preview_id:"preview-123",preview_name:$name,preview_slug:$name,preview_urls:[$url],deployment_id:"deployment-456",deployment_urls:["https://deployment-worker.example.workers.dev"]}'
 	if [[ ${FAKE_CF_OUTPUT:-} == duplicate ]]; then
-		cat "${WRANGLER_OUTPUT_FILE_PATH}" >"${WRANGLER_OUTPUT_FILE_PATH}.copy"
-		cat "${WRANGLER_OUTPUT_FILE_PATH}.copy" >>"${WRANGLER_OUTPUT_FILE_PATH}"
+		printf '%s\n' '{"type":"preview"}'
 	fi
 	exit 0
 fi
