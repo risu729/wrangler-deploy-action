@@ -111,6 +111,8 @@ jobs:
     timeout-minutes: 10
     env:
       MISE_IGNORED_CONFIG_PATHS: ${{ github.workspace }}
+      MISE_NODE_VERSION: "26.10.0"
+      MISE_BUN_VERSION: "1.4.2"
     permissions:
       contents: read
     steps:
@@ -157,7 +159,7 @@ jobs:
             exit 1
           fi
           cat "${RUNNER_TEMP}/mode.log"
-          grep -Fi 'mode' "${RUNNER_TEMP}/mode.log"
+          grep -F 'The Build Output was created with mode' "${RUNNER_TEMP}/mode.log"
   ci-check:
     name: CI Check
     needs:
