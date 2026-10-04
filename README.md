@@ -249,8 +249,7 @@ needs suitable permissions for its declared resources. Queue, database, or
 other resource provisioning can need additional product permissions.
 
 `production-strategy: deploy` needs permissions for every configured resource
-that cf applies, even though the action still targets one Worker. Classic
-Container image/application management needs `Workers Containers Write`. Configured
+that cf applies, even though the action still targets one Worker. Container image/application management with the default scheduling policy needs `Workers Containers Write`. Configured
 queues need `Queues Write`; D1 provisioning or migrations
 need `D1 Write` when performed by the caller. Routes and Custom Domains require
 their applicable zone/account permissions. Omitting routes and Custom Domains
