@@ -16,6 +16,7 @@ export GITHUB_STEP_SUMMARY="${temporary_directory}/action.summary"
 export INPUT_MODE=dry-run INPUT_WORKING_DIRECTORY=tests/fixtures/worker
 export INPUT_WORKER=worker INPUT_BUILD_MODE=production
 export INPUT_CLOUDFLARE_ACCOUNT_ID='' INPUT_CLOUDFLARE_API_TOKEN=''
+export INPUT_PRODUCTION_STRATEGY=versions
 export INPUT_SECRETS_JSON='' INPUT_DEPLOY_TRIGGERS=false
 export CLOUDFLARE_ACCOUNT_ID='' CLOUDFLARE_API_TOKEN=''
 
@@ -23,20 +24,25 @@ cd "${repo_root}/tests/fixtures/worker"
 
 sha256sum --check .cloudflare/build.sha256
 
-export INPUT_BUILD_MODE=staging
-if "${repo_root}/src/deploy.sh" >"${temporary_directory}/mode.log" 2>&1; then
-	echo 'Expected cf to reject the mismatched mode.' >&2
-	exit 1
-fi
-cat "${temporary_directory}/mode.log"
-grep -F 'The Build Output was created with mode' "${temporary_directory}/mode.log"
+for strategy in versions deploy; do
+	export INPUT_PRODUCTION_STRATEGY="${strategy}" INPUT_BUILD_MODE=staging
+	if "${repo_root}/src/deploy.sh" >"${temporary_directory}/mode.log" 2>&1; then
+		echo 'Expected cf to reject the mismatched mode.' >&2
+		exit 1
+	fi
+	cat "${temporary_directory}/mode.log"
+	grep -F 'The Build Output was created with mode' "${temporary_directory}/mode.log"
+done
 
 export INPUT_BUILD_MODE=production
 bun run cf-vite build --preview
 jq -e '.buildContext.isPreview == true and .buildContext.mode == "production"' .cloudflare/output/v0/config.json
-if "${repo_root}/src/deploy.sh" >"${temporary_directory}/preview-mode.log" 2>&1; then
-	echo 'Expected cf to reject Preview output for a production version.' >&2
-	exit 1
-fi
-cat "${temporary_directory}/preview-mode.log"
-grep -F 'Preview' "${temporary_directory}/preview-mode.log"
+for strategy in versions deploy; do
+	export INPUT_PRODUCTION_STRATEGY="${strategy}"
+	if "${repo_root}/src/deploy.sh" >"${temporary_directory}/preview-mode.log" 2>&1; then
+		echo 'Expected cf to reject Preview output for a production version.' >&2
+		exit 1
+	fi
+	cat "${temporary_directory}/preview-mode.log"
+	grep -F 'Preview' "${temporary_directory}/preview-mode.log"
+done

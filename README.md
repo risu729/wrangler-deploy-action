@@ -11,7 +11,7 @@ packages and Yarn Plug'n'Play), then a configured mise tool. Undeclared
 transitive binaries are ignored.
 
 Tested with `cf@1.0.0-beta.12`. cf is beta: pin its version and verify upgrades.
-Version uploads still use `WRANGLER_OUTPUT_FILE_PATH` internally for structured
+Version uploads and full deployments still use `WRANGLER_OUTPUT_FILE_PATH` internally for structured
 metadata. Workers Previews use the documented JSON stdout response instead.
 Human-readable terminal output is never parsed.
 
@@ -23,11 +23,13 @@ Human-readable terminal output is never parsed.
 | `delete-preview` | Delete the exact named Preview and verify its absence; already missing is success. No build or cf installation is required. |
 | `preview-or-dry-run` | With credentials, upload a version with a stable preview alias. With neither credential, validate without uploading. |
 | `dry-run` | Validate existing Build Output without uploading, rebuilding, or changing traffic. |
-| `production` | Upload a version, deploy that exact version at 100%, then read the deployment back and verify the allocation. |
+| `production` | Publish with the selected production strategy and verify the returned version at 100%. |
 
-Production and legacy version uploads use `cf workers versions create --prebuilt --mode <build-mode>
+The default `production-strategy: versions` and legacy version uploads use `cf workers versions create --prebuilt --mode <build-mode>
 --worker <worker>`. Production uses `cf workers deployments create` followed by
-`cf workers deployments get`. No operation calls `cf deploy`.
+`cf workers deployments get`. The opt-in `production-strategy: deploy` uses
+`cf deploy --prebuilt --mode <build-mode> --worker <worker>`, then reads the
+active deployment and verifies that exact returned version at 100%.
 
 Legacy `preview-or-dry-run` uses version URLs on an existing Worker.
 Use `worker-preview` for branch and PR environments. Neither changes production
@@ -40,6 +42,51 @@ are preserved by default. Set `deploy-triggers: 'true'` explicitly to run
 `cf workers triggers deploy --prebuilt` after a verified production deployment.
 If trigger synchronization fails, the action fails, but the new version has
 already been deployed. No automatic rollback is attempted.
+
+### Full production deployment for Container applications
+
+Set `production-strategy: deploy` and `deploy-triggers: 'true'` together to let
+cf apply configured Container applications and synchronize triggers in the same
+operation. This uses the pinned CLI's existing image publication, namespace
+identity checks, configuration diff, and rollout implementation. The action
+never builds a Worker or installs a tool. The caller must prepare Container
+images with its build and retain the pinned Docker tooling, local images or
+registry references that the prebuilt output requires. With cf beta.12, `cf
+build` builds Dockerfile images and records local Docker tags in Container Build
+Output. `cf deploy --prebuilt` pushes those already-built tags and applies their
+remote image digests. Keep the same Docker daemon from build through deploy, or
+transfer and load the exact built images with their recorded tags. Copying only
+`.cloudflare/output/v0` or the Docker source context to another runner is
+insufficient. Verify image identity as well as the Worker artifact before deployment.
+
+`deploy` is accepted only in `production` and `dry-run` modes. Select it in the
+validation step too: `mode: dry-run` with `production-strategy: deploy` runs
+`cf deploy --prebuilt --dry-run` without credentials or mutations. Trigger
+consent is required only for production; dry-run keeps `deploy-triggers: 'false'`.
+Dry-run validates the artifact but cannot prove live resource identity or that
+an image rollout will succeed.
+
+Full deployment also applies Durable Object lifecycle declarations. Callers
+must review lifecycle transitions and rollback compatibility before selecting
+it. cf publishes the Worker before finishing Container application and trigger
+updates. Any CLI failure or deployment readback mismatch fails the action and
+writes no success outputs, even if a Worker is already live. Do not mark such a
+release successful; keep it eligible for a retry in the caller's release ledger.
+No automatic rollback is attempted.
+
+cf's structured deploy record identifies the Worker version, but does not
+identify Container application IDs, image digests, or completed rollouts. Action
+success means cf finished applying its configuration and the returned Worker
+version serves 100%; a progressive Container rollout can still be in progress.
+The caller owns any required image digest and rollout readback: use
+`cf containers applications get <id>`, `cf containers applications versions list
+--application-id <id>`, and instance inspection to verify the exact application,
+Durable Object namespace, image digest, instance type, and rollout state. Retain
+previous immutable image references if rollback must restore identical image
+bytes; rebuilding old source alone does not guarantee the previous image.
+
+See [cf Container deployment behavior](https://developers.cloudflare.com/cf/projects/cloudflare-config/)
+and [Container rollouts](https://developers.cloudflare.com/containers/configuration/rollouts/).
 
 ## Usage
 
@@ -140,6 +187,15 @@ For environment-scoped credentials and deployment approvals, set
 `environment: production` on the calling job. Configure concurrency in that
 workflow so production deployments cannot race.
 
+For a project that requires Container application synchronization, add:
+
+```yaml
+    production-strategy: deploy
+    deploy-triggers: 'true'
+```
+
+The same strategy must be selected in the preceding dry-run step.
+
 Optional Worker secrets are uploaded with the new production version:
 
 ```yaml
@@ -149,7 +205,7 @@ Optional Worker secrets are uploaded with the new production version:
 
 Use `toJSON` on each value. The action validates a JSON object of strings,
 creates a private temporary file, and removes it on success or failure. It
-passes the file to `cf workers versions create --secrets-file`; it does not run
+passes the file to the selected CLI command with `--secrets-file`; it does not run
 separate secret updates. Secrets omitted from the object are preserved by the
 version upload operation. This option is restricted to production mode.
 
@@ -166,7 +222,8 @@ version upload operation. This option is restricted to production mode.
 | `cloudflare-account-id` | Empty | Required for authenticated operations. |
 | `cloudflare-api-token` | Empty | Required for authenticated operations. |
 | `secrets-json` | Empty | String-valued JSON object for production version upload. |
-| `deploy-triggers` | `false` | Opt-in trigger synchronization, production only. |
+| `production-strategy` | `versions` | `versions` or `deploy`; selects the production and dry-run CLI path. `deploy` requires explicit production trigger consent. |
+| `deploy-triggers` | `false` | Opt-in trigger synchronization, production only; required for full `deploy`. |
 
 | Output | Description |
 | --- | --- |
@@ -190,6 +247,14 @@ default deployment preserves an existing Custom Domain without updating it.
 Per-Worker tokens cannot manage Custom Domains; an explicit trigger update
 needs suitable permissions for its declared resources. Queue, database, or
 other resource provisioning can need additional product permissions.
+
+`production-strategy: deploy` needs permissions for every configured resource
+that cf applies, even though the action still targets one Worker. Container image/application management with the default scheduling policy needs `Workers Containers Write`. Configured
+queues need `Queues Write`; D1 provisioning or migrations
+need `D1 Write` when performed by the caller. Routes and Custom Domains require
+their applicable zone/account permissions. Omitting routes and Custom Domains
+avoids those requests. Grant only the products actually used by the project;
+this strategy cannot preserve the default versions-only permission boundary.
 
 The action supports Linux runners with Bash, jq, curl, and a Node.js version supported
 by the caller's pinned cf (currently Node.js 22.18 or later). It does not create
@@ -220,8 +285,9 @@ mise run test-integration
 
 CI also invokes the composite action with a fake CLI. `test-integration` runs
 the same real cf checks locally and in CI: it builds the fixture, validates the
-prebuilt output without credentials or mutations, and checks that mismatched
-build modes and Preview output are rejected for production version uploads.
+prebuilt output through both production strategies without credentials or mutations,
+and checks that mismatched build modes and Preview output are rejected by both.
+Authenticated full deployment and Container rollout readback require caller testing.
 Node.js and Bun versions are pinned in mise. Real scoped-token preview and
 production validation is performed in dotfiles.
 

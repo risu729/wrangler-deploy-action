@@ -16,6 +16,7 @@ export GITHUB_STEP_SUMMARY="${temporary_directory}/action.summary"
 export INPUT_MODE=dry-run INPUT_WORKING_DIRECTORY=tests/fixtures/worker
 export INPUT_WORKER=worker INPUT_BUILD_MODE=production
 export INPUT_CLOUDFLARE_ACCOUNT_ID='' INPUT_CLOUDFLARE_API_TOKEN=''
+export INPUT_PRODUCTION_STRATEGY=versions
 export INPUT_SECRETS_JSON='' INPUT_DEPLOY_TRIGGERS=false
 export CLOUDFLARE_ACCOUNT_ID='' CLOUDFLARE_API_TOKEN=''
 
@@ -23,4 +24,13 @@ cd "${repo_root}/tests/fixtures/worker"
 
 "${repo_root}/src/check-cf.sh"
 "${repo_root}/src/deploy.sh"
+export INPUT_PRODUCTION_STRATEGY=deploy
+"${repo_root}/src/deploy.sh"
+# Exercise the real beta structured deploy contract without authenticating.
+WRANGLER_OUTPUT_FILE_PATH="${temporary_directory}/deploy.jsonl" \
+	./node_modules/.bin/cf deploy --prebuilt --mode production --worker worker --dry-run
+jq --slurp --exit-status '
+	map(select(.type == "deploy")) | length == 1 and
+	.[0].worker_name == "worker" and .[0].version_id == null
+' "${temporary_directory}/deploy.jsonl"
 grep -Fx 'effective-mode=dry-run' "${GITHUB_OUTPUT}"

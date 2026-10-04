@@ -28,6 +28,9 @@ inputs:
     description: Cloudflare API token required for authenticated operations.
   secrets-json:
     description: Optional JSON object of string secrets uploaded with the production version.
+  production-strategy:
+    description: versions (default) or deploy; deploy applies Container applications and triggers together. Also selects the dry-run validation path.
+    default: versions
   deploy-triggers:
     description: Explicitly apply configured routes, domains and other triggers after production deployment.
     default: 'false'
@@ -78,5 +81,6 @@ runs:
         INPUT_CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
         INPUT_CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         INPUT_SECRETS_JSON: ${{ inputs.secrets-json }}
+        INPUT_PRODUCTION_STRATEGY: ${{ inputs.production-strategy }}
         INPUT_DEPLOY_TRIGGERS: ${{ inputs.deploy-triggers }}
       run: '"${GITHUB_ACTION_PATH}/src/deploy.sh"'
