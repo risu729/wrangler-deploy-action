@@ -24,7 +24,7 @@ fail() {
 }
 
 case "${mode}" in
-preview-or-dry-run | dry-run | production) ;;
+preview-or-dry-run | dry-run | production | worker-preview | delete-preview) ;;
 *) fail "Unsupported mode: ${mode}" ;;
 esac
 case "${deploy_triggers}" in
@@ -51,6 +51,12 @@ command -v jq >/dev/null 2>&1 || fail 'jq is required; use a GitHub-hosted Linux
 resolved_working_directory="$(resolve_working_directory "${INPUT_WORKING_DIRECTORY:-.}" "${workspace}")"
 readonly resolved_working_directory
 cd "${resolved_working_directory}"
+if [[ ${mode} == worker-preview || ${mode} == delete-preview ]]; then
+	# Preview resources have a separate deployment and cleanup lifecycle.
+	# shellcheck source=src/previews.sh
+	source "${script_directory}/previews.sh"
+	exit 0
+fi
 [[ -f .cloudflare/output/v0/config.json ]] || fail 'Cloudflare Build Output is missing; run cf build before invoking this action.'
 resolve_cf "${resolved_working_directory}" "${workspace}"
 

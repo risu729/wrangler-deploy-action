@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+method='' destination='' url=''
+while (($#)); do
+	case "$1" in
+	--request)
+		method="$2"
+		shift 2
+		;;
+	--output)
+		destination="$2"
+		shift 2
+		;;
+	--header)
+		[[ $(stat -c '%a' "${2#@}") == 600 ]]
+		shift 2
+		;;
+	--max-time | --write-out) shift 2 ;;
+	--silent | --show-error) shift ;;
+	*)
+		url="$1"
+		shift
+		;;
+	esac
+done
+printf '%s %s\n' "${method}" "${url}" >>"${FAKE_CURL_LOG}"
+scenario="${FAKE_PREVIEW_API:-}"
+[[ ${scenario} == network ]] && exit 1
+status=200
+body='{"success":true,"result":{}}'
+if [[ ${scenario} == forbidden || (${scenario} == readback-failure && -f ${FAKE_CURL_STATE}) || (${scenario} == delete-failure && ${method} == DELETE) ]]; then
+	status=403
+	body='{"success":false,"errors":[{"code":10000}]}'
+elif [[ ${scenario} == malformed ]]; then
+	body='bad-json'
+elif [[ ${scenario} == missing-worker ]]; then
+	status=404
+	body='{"success":false,"errors":[{"code":10007}]}'
+elif [[ ${scenario} == missing || (-f ${FAKE_CURL_STATE} && ${scenario} != still-present) ]]; then
+	status=404
+	body='{"success":false,"errors":[{"code":10025}]}'
+elif [[ ${method} == DELETE ]]; then
+	touch "${FAKE_CURL_STATE}"
+elif [[ ${url} == */deployments/latest ]]; then
+	id=deployment-456
+	[[ ${scenario} == wrong-deployment ]] && id=other
+	body="$(jq -nc --arg id "${id}" '{success:true,result:{id:$id,urls:["https://deployment-worker.example.workers.dev"]}}')"
+else
+	name=pr-42 id=preview-123 url=https://pr-42-worker.example.workers.dev
+	[[ ${scenario} == wrong-name ]] && name=other
+	[[ ${scenario} == wrong-id ]] && id=other
+	[[ ${scenario} == wrong-url ]] && url=https://other.example.workers.dev
+	body="$(jq -nc --arg name "${name}" --arg id "${id}" --arg url "${url}" '{success:true,result:{id:$id,name:$name,slug:$name,urls:[$url]}}')"
+fi
+printf '%s' "${body}" >"${destination}"
+printf '%s' "${status}"
