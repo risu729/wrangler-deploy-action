@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n ${FAKE_CF_LOG:-} ]]; then
+	printf '%s :: %s\n' "${PWD}" "$*" >>"${FAKE_CF_LOG}"
+fi
+if [[ $1 == --version ]]; then
+	printf '%s\n' test-version
+	exit 0
+fi
+readonly version_id=11111111-1111-4111-8111-111111111111
+readonly deployment_id=22222222-2222-4222-8222-222222222222
+arguments=("$@")
+for ((index = 0; index < $# - 1; index++)); do
+	if [[ ${arguments[index]} == --secrets-file && -n ${FAKE_CF_SECRETS_LOG:-} ]]; then
+		cp -- "${arguments[index + 1]}" "${FAKE_CF_SECRETS_LOG}"
+		stat -c '%a' "${arguments[index + 1]}" >"${FAKE_CF_SECRETS_LOG}.mode"
+	fi
+	if [[ ${arguments[index]} == --versions ]]; then
+		jq --exit-status --arg id "${version_id}" \
+			'. == [{version_id: $id, percentage: 100}]' <<<"${arguments[index + 1]}" >/dev/null
+	fi
+done
+case "$1 $2 $3" in
+'workers versions create')
+	[[ " $* " == *' --prebuilt '* ]] || exit 1
+	[[ " $* " == *' --dry-run '* ]] && exit 0
+	[[ ${FAKE_CF_FAILURE:-} == upload ]] && exit 1
+	[[ ${FAKE_CF_OUTPUT:-} == missing ]] && exit 0
+	worker=worker
+	id="${version_id}"
+	url=https://version-worker.example.workers.dev
+	alias=https://pr-42-worker.example.workers.dev
+	[[ ${FAKE_CF_OUTPUT:-} == wrong-worker ]] && worker=other
+	[[ ${FAKE_CF_OUTPUT:-} == bad-id ]] && id=invalid
+	[[ ${FAKE_CF_OUTPUT:-} == missing-url ]] && alias=''
+	jq -nc --arg worker "${worker}" --arg id "${id}" --arg url "${url}" --arg alias "${alias}" \
+		'{type:"version-upload",worker_name:$worker,version_id:$id,preview_url:$url,preview_alias_url:$alias}' \
+		>"${WRANGLER_OUTPUT_FILE_PATH:?}"
+	if [[ ${FAKE_CF_OUTPUT:-} == duplicate ]]; then
+		cat "${WRANGLER_OUTPUT_FILE_PATH}" >"${WRANGLER_OUTPUT_FILE_PATH}.copy"
+		cat "${WRANGLER_OUTPUT_FILE_PATH}.copy" >>"${WRANGLER_OUTPUT_FILE_PATH}"
+	fi
+	;;
+'workers deployments create')
+	[[ ${FAKE_CF_FAILURE:-} == deploy ]] && exit 1
+	jq -nc --arg id "${deployment_id}" '{id:$id}'
+	;;
+'workers deployments get')
+	[[ ${FAKE_CF_FAILURE:-} == get ]] && exit 1
+	percentage=100
+	[[ ${FAKE_CF_OUTPUT:-} == wrong-percentage ]] && percentage=50
+	jq -nc --arg id "${deployment_id}" --arg version "${version_id}" --argjson percentage "${percentage}" \
+		'{id:$id,strategy:"percentage",versions:[{version_id:$version,percentage:$percentage}]}'
+	;;
+'workers triggers deploy')
+	[[ ${FAKE_CF_FAILURE:-} == triggers ]] && exit 1
+	;;
+*)
+	echo "Unexpected cf invocation: $*" >&2
+	exit 1
+	;;
+esac
+exit 0

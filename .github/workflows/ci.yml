@@ -49,15 +49,18 @@ jobs:
           version: 2026.10.1
       - name: Test
         run: mise run test
-      - name: Use fake mise and Wrangler
-        run: echo "${GITHUB_WORKSPACE}/tests/fake-bin" >> "${GITHUB_PATH}"
+      - name: Use fake mise and cf
+        run: |
+          echo "${GITHUB_WORKSPACE}/tests/fake-bin" >> "${GITHUB_PATH}"
+          mkdir -p tests/fixtures/worker/.cloudflare/output/v0
+          echo '{}' > tests/fixtures/worker/.cloudflare/output/v0/config.json
       - name: Test preview action
         id: preview
         uses: ./ # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ yet.
         with:
           mode: preview-or-dry-run
           working-directory: tests/fixtures/worker
-          config: wrangler.jsonc
+          worker: worker
           preview-alias: pr-42
           cloudflare-account-id: account
           cloudflare-api-token: token
@@ -76,7 +79,7 @@ jobs:
         with:
           mode: preview-or-dry-run
           working-directory: tests/fixtures/worker
-          config: wrangler.jsonc
+          worker: worker
           preview-alias: pr-42
       - name: Check dry-run output
         env:
@@ -88,32 +91,28 @@ jobs:
         with:
           mode: production
           working-directory: tests/fixtures/worker
-          config: wrangler.jsonc
+          worker: worker
           cloudflare-account-id: account
           cloudflare-api-token: token
       - name: Check production outputs
         env:
           EFFECTIVE_MODE: ${{ steps.production.outputs.effective-mode }}
-          DEPLOYMENT_TARGETS: ${{ steps.production.outputs.deployment-targets }}
+          VERSION_ID: ${{ steps.production.outputs.version-id }}
+          DEPLOYMENT_ID: ${{ steps.production.outputs.deployment-id }}
+          TRIGGERS_DEPLOYED: ${{ steps.production.outputs.triggers-deployed }}
         run: |
           [[ "${EFFECTIVE_MODE}" == "production" ]]
-          [[ "${DEPLOYMENT_TARGETS}" == '["https://one.example.com","example.com/*","schedule: 0 0 * * *"]' ]]
-  wrangler-integration:
-    name: Wrangler Integration (${{ matrix.wrangler-version }})
+          [[ "${VERSION_ID}" == '11111111-1111-4111-8111-111111111111' ]]
+          [[ "${DEPLOYMENT_ID}" == '22222222-2222-4222-8222-222222222222' ]]
+          [[ "${TRIGGERS_DEPLOYED}" == false ]]
+  cf-integration:
+    name: cf Integration
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       MISE_IGNORED_CONFIG_PATHS: ${{ github.workspace }}
-      MISE_NODE_VERSION: "22"
-      MISE_WRANGLER_VERSION: ${{ matrix.wrangler-version }}
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        wrangler-version:
-          - "4.21.0"
-          - latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -124,25 +123,47 @@ jobs:
         with:
           version: 2026.10.1
           working_directory: ${{ runner.temp }}
-          install_args: node wrangler
-          cache_key: wrangler-integration-{{platform}}-mise-{{version}}-node-{{env.MISE_NODE_VERSION}}-wrangler-{{env.MISE_WRANGLER_VERSION}}
-      - name: Run Wrangler dry run
-        id: wrangler
+          install_args: node@26.10.0 bun@1.4.2
+          cache_key: cf-integration-{{platform}}-mise-{{version}}-node-26.10.0-bun-1.4.2
+      - name: Build real fixture with pinned cf
+        working-directory: tests/fixtures/worker
+        run: |
+          bun install --frozen-lockfile
+          bun run cf build
+          find .cloudflare/output -type f -print0 | sort -z | xargs -0 sha256sum > "${RUNNER_TEMP}/build.sha256"
+      - name: Validate prebuilt Worker with the action
+        id: cf
         uses: ./ # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ yet.
         with:
           mode: dry-run
           working-directory: tests/fixtures/worker
-          config: wrangler.jsonc
-      - name: Check dry-run output
+          worker: worker
+      - name: Check output and unchanged build
+        working-directory: tests/fixtures/worker
         env:
-          EFFECTIVE_MODE: ${{ steps.wrangler.outputs.effective-mode }}
-        run: test "${EFFECTIVE_MODE}" = "dry-run"
+          EFFECTIVE_MODE: ${{ steps.cf.outputs.effective-mode }}
+        run: |
+          test "${EFFECTIVE_MODE}" = dry-run
+          sha256sum --check "${RUNNER_TEMP}/build.sha256"
+      - name: Reject a mismatched build mode
+        env:
+          INPUT_MODE: dry-run
+          INPUT_WORKING_DIRECTORY: tests/fixtures/worker
+          INPUT_WORKER: worker
+          INPUT_BUILD_MODE: staging
+        run: |
+          if src/deploy.sh > "${RUNNER_TEMP}/mode.log" 2>&1; then
+            echo 'Expected cf to reject the mismatched mode.' >&2
+            exit 1
+          fi
+          cat "${RUNNER_TEMP}/mode.log"
+          grep -Fi 'mode' "${RUNNER_TEMP}/mode.log"
   ci-check:
     name: CI Check
     needs:
       - lint
       - test
-      - wrangler-integration
+      - cf-integration
     if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

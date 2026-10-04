@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-if [[ $# -lt 6 || $1 != "--cwd" || $3 != "run" || $4 != "-B" || $5 != "wrangler" ]]; then
+if [[ $# -lt 6 || $1 != "--cwd" || $3 != "run" || $4 != "-B" || $5 != "cf" ]]; then
 	echo "Unexpected Yarn invocation: $*" >&2
 	exit 1
 fi
@@ -10,4 +10,4 @@ fi
 working_directory="$2"
 shift 5
 cd "${working_directory}"
-wrangler "$@"
+cf "$@"

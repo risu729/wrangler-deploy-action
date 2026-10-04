@@ -26,3 +26,4 @@ jobs:
         uses: ./ # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ yet.
         with:
           mode: dry-run
+          worker: worker
