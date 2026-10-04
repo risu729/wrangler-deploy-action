@@ -14,6 +14,7 @@ readonly preview_alias="${INPUT_PREVIEW_ALIAS:-}"
 readonly account_id="${INPUT_CLOUDFLARE_ACCOUNT_ID:-}"
 readonly api_token="${INPUT_CLOUDFLARE_API_TOKEN:-}"
 readonly secrets_json="${INPUT_SECRETS_JSON:-}"
+readonly production_strategy="${INPUT_PRODUCTION_STRATEGY:-versions}"
 readonly deploy_triggers="${INPUT_DEPLOY_TRIGGERS:-false}"
 readonly workspace="${GITHUB_WORKSPACE:-${PWD}}"
 readonly temporary_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
@@ -27,6 +28,16 @@ case "${mode}" in
 preview-or-dry-run | dry-run | production | worker-preview | delete-preview) ;;
 *) fail "Unsupported mode: ${mode}" ;;
 esac
+case "${production_strategy}" in
+versions | deploy) ;;
+*) fail 'production-strategy must be versions or deploy.' ;;
+esac
+if [[ ${production_strategy} == deploy ]]; then
+	[[ ${mode} == production || ${mode} == dry-run ]] || fail 'production-strategy deploy is only supported in production or dry-run mode.'
+	if [[ ${mode} == production && ${deploy_triggers} != true ]]; then
+		fail 'production-strategy deploy requires deploy-triggers true because cf deploy synchronizes triggers.'
+	fi
+fi
 case "${deploy_triggers}" in
 true | false) ;;
 *) fail 'deploy-triggers must be true or false.' ;;
@@ -94,7 +105,15 @@ if [[ -n ${secrets_json} ]]; then
 	arguments+=(--secrets-file "${secrets_file}")
 fi
 
-run_cf workers versions create "${arguments[@]}"
+upload_type=version-upload
+if [[ ${production_strategy} == deploy ]]; then
+	# cf owns Container images, application updates, and trigger synchronization.
+	# It deploys the prebuilt Worker once; do not activate another version later.
+	upload_type=deploy
+	run_cf deploy "${arguments[@]}"
+else
+	run_cf workers versions create "${arguments[@]}"
+fi
 version_id=""
 deployment_id=""
 preview_url=""
@@ -103,8 +122,8 @@ triggers_deployed=false
 readonly uuid_pattern='^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
 if [[ ${effective_mode} != dry-run ]]; then
 	[[ -f ${WRANGLER_OUTPUT_FILE_PATH} ]] || fail 'cf did not write structured upload output.'
-	if ! upload="$(jq --slurp --compact-output --exit-status --arg worker "${worker}" --arg uuid "${uuid_pattern}" '
-		map(select(.type == "version-upload"))
+	if ! upload="$(jq --slurp --compact-output --exit-status --arg worker "${worker}" --arg uuid "${uuid_pattern}" --arg type "${upload_type}" '
+		map(select(.type == $type))
 		| if length == 1 then .[0] else error("Expected one uploaded version") end
 		| select(.worker_name == $worker)
 		| select(.version_id | type == "string" and test($uuid))
@@ -125,12 +144,27 @@ if [[ ${effective_mode} != dry-run ]]; then
 fi
 
 if [[ ${effective_mode} == production ]]; then
-	versions="$(jq --null-input --compact-output --arg id "${version_id}" '[{version_id: $id, percentage: 100}]')"
-	run_cf workers deployments create --worker "${worker}" --strategy percentage --versions "${versions}" \
-		>"${output_directory}/deployment.json"
-	if ! deployment_id="$(jq --raw-output --exit-status --arg uuid "${uuid_pattern}" \
-		'.id | select(type == "string" and test($uuid))' "${output_directory}/deployment.json")"; then
-		fail 'cf did not return a valid deployment ID.'
+	if [[ ${production_strategy} == deploy ]]; then
+		# cf deploy reports the version, not the deployment UUID. The first entry
+		# is the deployment actively serving traffic, according to the API.
+		run_cf workers deployments list --worker "${worker}" >"${output_directory}/deployment.json"
+		if ! deployment_id="$(jq --raw-output --exit-status --arg uuid "${uuid_pattern}" --arg version "${version_id}" '
+			.deployments | select(type == "array" and length > 0) | .[0]
+			| select(.strategy == "percentage")
+			| select(.versions | type == "array" and length == 1 and .[0].version_id == $version and .[0].percentage == 100)
+			| .id | select(type == "string" and test($uuid))
+		' "${output_directory}/deployment.json")"; then
+			fail 'The active deployment did not match the version returned by cf deploy at 100%.'
+		fi
+		triggers_deployed=true
+	else
+		versions="$(jq --null-input --compact-output --arg id "${version_id}" '[{version_id: $id, percentage: 100}]')"
+		run_cf workers deployments create --worker "${worker}" --strategy percentage --versions "${versions}" \
+			>"${output_directory}/deployment.json"
+		if ! deployment_id="$(jq --raw-output --exit-status --arg uuid "${uuid_pattern}" \
+			'.id | select(type == "string" and test($uuid))' "${output_directory}/deployment.json")"; then
+			fail 'cf did not return a valid deployment ID.'
+		fi
 	fi
 	# Read back the deployment so success means the uploaded version owns 100%.
 	run_cf workers deployments get "${deployment_id}" --worker "${worker}" >"${output_directory}/verified.json"
@@ -140,7 +174,7 @@ if [[ ${effective_mode} == production ]]; then
 	' "${output_directory}/verified.json" >/dev/null; then
 		fail 'Deployment readback did not match the uploaded version at 100%.'
 	fi
-	if [[ ${deploy_triggers} == true ]]; then
+	if [[ ${deploy_triggers} == true && ${production_strategy} == versions ]]; then
 		run_cf workers triggers deploy --prebuilt --mode "${build_mode}" --worker "${worker}"
 		triggers_deployed=true
 	fi
@@ -173,6 +207,9 @@ if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
 				# Literal Markdown code spans.
 				# shellcheck disable=SC2016
 				printf 'Deployment: `%s` (verified at 100%%).\n\nTriggers synchronized: `%s`.\n' "${deployment_id}" "${triggers_deployed}"
+				if [[ ${production_strategy} == deploy ]]; then
+					printf '\ncf applied configured Container applications. Container rollout completion requires caller verification.\n'
+				fi
 			fi
 		fi
 	} >>"${GITHUB_STEP_SUMMARY}"

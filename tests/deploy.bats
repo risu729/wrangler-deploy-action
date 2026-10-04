@@ -12,6 +12,7 @@ setup() {
 	export FAKE_MISE_LOG="${BATS_TEST_TMPDIR}/mise.log"
 	export FAKE_CURL_LOG="${BATS_TEST_TMPDIR}/curl.log"
 	export FAKE_CURL_STATE="${BATS_TEST_TMPDIR}/curl.state"
+	export INPUT_PRODUCTION_STRATEGY=versions
 	export INPUT_PREVIEW_NAME=pr-42
 	export FAKE_CF_LOG="${BATS_TEST_TMPDIR}/cf.log"
 	export FAKE_CF_SECRETS_LOG="${BATS_TEST_TMPDIR}/cf-secrets.json"
@@ -429,6 +430,105 @@ run_action() {
 		rm -f "${FAKE_CURL_STATE}"
 		run run_action delete-preview account token
 		[ "${status}" -ne 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+	done
+}
+
+@test "full production deployment verifies the returned version without another activation" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${FAKE_CF_LOG}" 'deploy --prebuilt --mode production --worker worker'
+	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments list --worker worker'
+	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments get 22222222-2222-4222-8222-222222222222 --worker worker'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments create'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers deploy'
+	assert_file_contains "${GITHUB_OUTPUT}" 'version-id=11111111-1111-4111-8111-111111111111'
+	assert_file_contains "${GITHUB_OUTPUT}" 'triggers-deployed=true'
+	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Container rollout completion requires caller verification.'
+}
+
+@test "full deployment requires explicit trigger consent before mutation" {
+	export INPUT_PRODUCTION_STRATEGY=deploy
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'requires deploy-triggers true'* ]]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'deploy --prebuilt'
+}
+
+@test "full deployment dry run follows the selected path without trigger consent or credentials" {
+	export INPUT_PRODUCTION_STRATEGY=deploy
+	run run_action dry-run
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${FAKE_CF_LOG}" 'deploy --prebuilt --mode production --worker worker --dry-run'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments'
+	assert_file_contains "${GITHUB_OUTPUT}" 'triggers-deployed=false'
+}
+
+@test "production strategy rejects unknown values and nonproduction uploads" {
+	for mode in worker-preview delete-preview preview-or-dry-run; do
+		export INPUT_PRODUCTION_STRATEGY=deploy
+		run run_action "${mode}" account token
+		[ "${status}" -ne 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+	done
+	export INPUT_PRODUCTION_STRATEGY=unknown
+	run run_action dry-run
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'production-strategy must be versions or deploy'* ]]
+}
+
+@test "full deployment refuses untrusted or ambiguous returned version metadata" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
+	for scenario in missing duplicate wrong-worker bad-id; do
+		export FAKE_CF_OUTPUT="${scenario}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+		assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments'
+	done
+}
+
+@test "full deployment rejects a different active version empty list or invalid deployment ID" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
+	for scenario in wrong-active-version wrong-percentage empty-deployments bad-deployment-id; do
+		export FAKE_CF_OUTPUT="${scenario}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+		[[ ${output} == *'active deployment did not match'* ]]
+	done
+}
+
+@test "full deployment partial failures never produce success outputs" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
+	for scenario in upload containers triggers list get; do
+		export FAKE_CF_FAILURE="${scenario}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+	done
+}
+
+@test "full deployment still cleans private secrets after a Container failure" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
+	export INPUT_SECRETS_JSON='{"TOKEN":"test"}' FAKE_CF_FAILURE=containers
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[ "$(cat "${FAKE_CF_SECRETS_LOG}.mode")" = 600 ]
+	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "full deployment validates the individual deployment readback after the active list" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
+	for scenario in wrong-readback-version wrong-readback-percentage; do
+		export FAKE_CF_OUTPUT="${scenario}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[[ ${output} == *'Deployment readback did not match'* ]]
 		[ ! -s "${GITHUB_OUTPUT}" ]
 	done
 }
