@@ -17,7 +17,7 @@ yamlfmt = "0.21.0"
 # required for pipx backend
 uv = "0.12.23"
 yamllint = "1.38.0"
-typos = "1.50.3"
+typos = "1.51.1"
 "npm:semantic-release" = "25.0.9"
 
 [settings]
