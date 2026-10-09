@@ -683,3 +683,21 @@ run_action() {
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments create'
 	[ ! -s "${GITHUB_OUTPUT}" ]
 }
+
+@test "the native composite production invocation works without Bats observation variables" {
+	run env -u FAKE_CURL_LOG -u FAKE_CURL_STATE -u FAKE_DEPLOYMENT_STATE -u FAKE_CLOCK \
+		-u FAKE_CF_LOG -u FAKE_MISE_LOG -u FAKE_CF_SECRETS_LOG \
+		INPUT_MODE=production INPUT_WORKING_DIRECTORY=worker INPUT_WORKER=worker \
+		INPUT_BUILD_MODE=production INPUT_CLOUDFLARE_ACCOUNT_ID=account \
+		INPUT_CLOUDFLARE_API_TOKEN=token INPUT_PRODUCTION_STRATEGY=versions \
+		INPUT_DEPLOY_TRIGGERS=false \
+		bash -c '"$1/src/check-cf.sh" && "$1/src/deploy.sh"' -- "${repo_root}"
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${GITHUB_OUTPUT}" 'effective-mode=production'
+	assert_file_contains "${GITHUB_OUTPUT}" 'version-id=11111111-1111-4111-8111-111111111111'
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
+	assert_file_contains "${GITHUB_OUTPUT}" 'triggers-deployed=false'
+	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+	[ ! -e "${FAKE_DEPLOYMENT_STATE}" ]
+	[ ! -e "${FAKE_CURL_LOG}" ]
+}

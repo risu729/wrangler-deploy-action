@@ -27,6 +27,11 @@ while (($#)); do
 		;;
 	esac
 done
+# Composite-action smoke tests do not use Bats' optional observation state.
+# Default only synthetic state beside the private response, covered by Action cleanup.
+: "${FAKE_CURL_LOG:=/dev/null}"
+: "${FAKE_DEPLOYMENT_STATE:=${destination%/*}/fake-deployment.state}"
+: "${FAKE_CURL_STATE:=${destination%/*}/fake-preview.state}"
 printf '%s %s\n' "${method}" "${url}" >>"${FAKE_CURL_LOG}"
 if [[ ${url} == 'https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/deployments' ]]; then
 	[[ ${method} == GET ]]
