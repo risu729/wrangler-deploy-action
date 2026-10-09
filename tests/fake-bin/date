@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${1:-} == +%s%3N && ${FAKE_DATE_UNSUPPORTED:-} == true ]]; then
+	exit 1
+elif [[ ${1:-} == +%s%3N && -n ${FAKE_CLOCK:-} ]]; then
+	cat "${FAKE_CLOCK}"
+else
+	exec /usr/bin/date "$@"
+fi

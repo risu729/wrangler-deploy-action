@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n ${FAKE_CLOCK:-} ]]; then
+	ms="$(jq -n --arg seconds "$1" '$seconds | tonumber * 1000 | floor')"
+	printf '%s' "$(($(cat "${FAKE_CLOCK}") + ms))" >"${FAKE_CLOCK}"
+else
+	exec /usr/bin/sleep "$@"
+fi
