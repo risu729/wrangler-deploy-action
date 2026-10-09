@@ -58,6 +58,17 @@ if [[ -n ${secrets_json} && ${mode} != production ]]; then
 	fail 'secrets-json is only supported in production mode.'
 fi
 command -v jq >/dev/null 2>&1 || fail 'jq is required; use a GitHub-hosted Linux runner or install it first.'
+deployment_readback_available=false
+if [[ ${mode} == production && ${production_strategy} == versions ]]; then
+	[[ ${account_id} =~ ^[a-zA-Z0-9_-]+$ && ${worker} =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'Invalid account ID or Worker name.'
+	[[ ${api_token} != *$'\n'* && ${api_token} != *$'\r'* ]] || fail 'Invalid API token.'
+	if command -v curl >/dev/null 2>&1 && [[ $(date +%s%3N 2>/dev/null) =~ ^[0-9]+$ ]]; then
+		deployment_readback_available=true
+		# Load trusted readback code before any version upload or activation.
+		# shellcheck source=src/deployment-readback.sh
+		source "${script_directory}/deployment-readback.sh" 2>/dev/null || fail 'deployment_readback_helper_unavailable'
+	fi
+fi
 
 resolved_working_directory="$(resolve_working_directory "${INPUT_WORKING_DIRECTORY:-.}" "${workspace}")"
 readonly resolved_working_directory
@@ -166,13 +177,21 @@ if [[ ${effective_mode} == production ]]; then
 			fail 'cf did not return a valid deployment ID.'
 		fi
 	fi
-	# Read back the deployment so success means the uploaded version owns 100%.
-	run_cf workers deployments get "${deployment_id}" --worker "${worker}" >"${output_directory}/verified.json"
+	# Never repeat an upload or activation when the exact new deployment is not yet visible.
+	if [[ ${production_strategy} == versions && ${deployment_readback_available} == true ]]; then
+		verify_created_deployment
+	else
+		run_cf workers deployments get "${deployment_id}" --worker "${worker}" >"${output_directory}/verified.json"
+	fi
 	if ! jq --exit-status --arg id "${deployment_id}" --arg version "${version_id}" '
 		.id == $id and .strategy == "percentage" and
 		(.versions | length == 1 and .[0].version_id == $version and .[0].percentage == 100)
 	' "${output_directory}/verified.json" >/dev/null; then
 		fail 'Deployment readback did not match the uploaded version at 100%.'
+	fi
+	if [[ ${production_strategy} == versions && ${deployment_readback_available} == true ]]; then
+		# The common schema check must not let verification outlive its original budget.
+		(($(deployment_now_ms) < deployment_readback_deadline)) || fail 'deployment_readback_pending'
 	fi
 	if [[ ${deploy_triggers} == true && ${production_strategy} == versions ]]; then
 		run_cf workers triggers deploy --prebuilt --mode "${build_mode}" --worker "${worker}"

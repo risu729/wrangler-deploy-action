@@ -4,7 +4,32 @@ setup() {
 	repo_root="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
 	readonly repo_root
 
-	export PATH="${repo_root}/tests/fake-bin:${PATH}"
+	# Clock wrappers are executable runtime fixtures, not Action entrypoints.
+	local clock_bin="${BATS_TEST_TMPDIR}/clock-bin"
+	mkdir -p "${clock_bin}"
+	cat >"${clock_bin}/date" <<'CLOCK_DATE'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${1:-} == +%s%3N && ${FAKE_DATE_UNSUPPORTED:-} == true ]]; then
+	exit 1
+elif [[ ${1:-} == +%s%3N && -n ${FAKE_CLOCK:-} ]]; then
+	cat "${FAKE_CLOCK}"
+else
+	exec /usr/bin/date "$@"
+fi
+CLOCK_DATE
+	cat >"${clock_bin}/sleep" <<'CLOCK_SLEEP'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n ${FAKE_CLOCK:-} ]]; then
+	ms="$(jq -n --arg seconds "$1" '$seconds | tonumber * 1000 | floor')"
+	printf '%s' "$(($(cat "${FAKE_CLOCK}") + ms))" >"${FAKE_CLOCK}"
+else
+	exec /usr/bin/sleep "$@"
+fi
+CLOCK_SLEEP
+	chmod +x "${clock_bin}/date" "${clock_bin}/sleep"
+	export PATH="${clock_bin}:${repo_root}/tests/fake-bin:${PATH}"
 	export GITHUB_WORKSPACE="${BATS_TEST_TMPDIR}/workspace"
 	export RUNNER_TEMP="${BATS_TEST_TMPDIR}/runner"
 	export GITHUB_OUTPUT="${BATS_TEST_TMPDIR}/action.output"
@@ -12,6 +37,9 @@ setup() {
 	export FAKE_MISE_LOG="${BATS_TEST_TMPDIR}/mise.log"
 	export FAKE_CURL_LOG="${BATS_TEST_TMPDIR}/curl.log"
 	export FAKE_CURL_STATE="${BATS_TEST_TMPDIR}/curl.state"
+	export FAKE_DEPLOYMENT_STATE="${BATS_TEST_TMPDIR}/deployment.state"
+	export FAKE_CLOCK="${BATS_TEST_TMPDIR}/clock"
+	printf '0' >"${FAKE_CLOCK}"
 	export INPUT_PRODUCTION_STRATEGY=versions
 	export INPUT_PREVIEW_NAME=pr-42
 	export FAKE_CF_LOG="${BATS_TEST_TMPDIR}/cf.log"
@@ -189,7 +217,7 @@ run_action() {
 	assert_file_contains "${GITHUB_OUTPUT}" 'version-id=11111111-1111-4111-8111-111111111111'
 	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
 	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments create --worker worker --strategy percentage --versions [{"version_id":"11111111-1111-4111-8111-111111111111","percentage":100}]'
-	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments get 22222222-2222-4222-8222-222222222222 --worker worker'
+	assert_file_contains "${FAKE_CURL_LOG}" 'GET https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/deployments/22222222-2222-4222-8222-222222222222'
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
 	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'verified at 100%'
 }
@@ -531,4 +559,170 @@ run_action() {
 		[[ ${output} == *'Deployment readback did not match'* ]]
 		[ ! -s "${GITHUB_OUTPUT}" ]
 	done
+}
+
+@test "exact deployment visibility retries reads only then enables opted-in triggers" {
+	export FAKE_DEPLOYMENT_API=delayed INPUT_DEPLOY_TRIGGERS=true
+	run run_action production account sensitive-example-token
+	[ "${status}" -eq 0 ]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 3 ]
+	[ "$(grep -c 'workers versions create ' "${FAKE_CF_LOG}")" -eq 1 ]
+	[ "$(grep -c 'workers deployments create ' "${FAKE_CF_LOG}")" -eq 1 ]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments get'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments list'
+	assert_file_contains "${FAKE_CF_LOG}" 'workers triggers deploy'
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.timeouts")" = $'30.000\n29.000\n28.000\n28.000' ]
+	[[ ${output} != *sensitive-example-token* && ${output} != *sensitive-provider-message* ]]
+	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+}
+
+@test "missing exact deployment expires at one 30-second deadline without republication" {
+	export FAKE_DEPLOYMENT_API=missing INPUT_DEPLOY_TRIGGERS=true
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *deployment_readback_pending* ]]
+	[ "$(cat "${FAKE_CLOCK}")" -eq 30000 ]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 30 ]
+	[ "$(grep -c 'workers versions create ' "${FAKE_CF_LOG}")" -eq 1 ]
+	[ "$(grep -c 'workers deployments create ' "${FAKE_CF_LOG}")" -eq 1 ]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
+	[ ! -s "${GITHUB_OUTPUT}" ]
+	[ ! -s "${GITHUB_STEP_SUMMARY}" ]
+	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+}
+
+@test "near-boundary exact deployment succeeds but late bodies and timeouts cannot" {
+	export FAKE_DEPLOYMENT_API=near-boundary
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	[ "$(cat "${FAKE_CLOCK}")" -eq 29999 ]
+	[ "$(tail -1 "${FAKE_DEPLOYMENT_STATE}.timeouts")" = 0.001 ]
+	for scenario in late-success request-timeout; do
+		export FAKE_DEPLOYMENT_API="${scenario}" INPUT_DEPLOY_TRIGGERS=true
+		printf '0' >"${FAKE_CLOCK}"
+		: >"${GITHUB_OUTPUT}"
+		: >"${FAKE_CF_LOG}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[[ ${output} == *deployment_readback_pending* ]]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+		assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
+	done
+}
+
+@test "only typed40410336 retries and all schema or identity failures stop immediately" {
+	for scenario in wrong-missing mixed-errors string-code malformed-missing empty-errors unauthorized forbidden rate-limit server redirect network malformed wrong-id wrong-readback-version wrong-percentage wrong-strategy multiple-versions non-array false-success multiple-json missing-multiple-json; do
+		export FAKE_DEPLOYMENT_API="${scenario}" INPUT_DEPLOY_TRIGGERS=true
+		rm -f "${FAKE_DEPLOYMENT_STATE}"
+		printf '0' >"${FAKE_CLOCK}"
+		: >"${GITHUB_OUTPUT}"
+		: >"${GITHUB_STEP_SUMMARY}"
+		: >"${FAKE_CF_LOG}"
+		run run_action production account sensitive-example-token
+		[ "${status}" -ne 0 ]
+		[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 1 ]
+		[ "$(cat "${FAKE_CLOCK}")" -eq 0 ]
+		[ "$(grep -c 'workers deployments create ' "${FAKE_CF_LOG}")" -eq 1 ]
+		[ "$(grep -c 'workers versions create ' "${FAKE_CF_LOG}")" -eq 1 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+		[ ! -s "${GITHUB_STEP_SUMMARY}" ]
+		assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
+		[[ ${output} != *sensitive-example-token* && ${output} != *sensitive-provider-message* ]]
+		[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+	done
+}
+
+@test "unsafe production identifiers or token headers fail before upload" {
+	export INPUT_WORKER=worker
+	# run_action fixes the Worker; account and token still exercise the actual input boundary.
+	for account in '../other' 'bad name'; do
+		run run_action production "${account}" token
+		[ "${status}" -ne 0 ]
+		assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+	done
+	run run_action production account $'token\nextra-header'
+	[ "${status}" -ne 0 ]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+}
+
+@test "historical resource proof cannot pass after another deployment owns current traffic" {
+	for scenario in wrong-id wrong-version wrong-percentage empty malformed collection-multiple-json forbidden missing network late timeout; do
+		export FAKE_CURRENT_DEPLOYMENT="${scenario}" INPUT_DEPLOY_TRIGGERS=true
+		rm -f "${FAKE_DEPLOYMENT_STATE}"
+		printf '0' >"${FAKE_CLOCK}"
+		: >"${GITHUB_OUTPUT}"
+		: >"${GITHUB_STEP_SUMMARY}"
+		: >"${FAKE_CF_LOG}"
+		: >"${FAKE_CURL_LOG}"
+		run run_action production account sensitive-example-token
+		[ "${status}" -ne 0 ]
+		[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 1 ]
+		[ "$(wc -l <"${FAKE_CURL_LOG}")" -eq 2 ]
+		[ "$(grep -c 'workers deployments create ' "${FAKE_CF_LOG}")" -eq 1 ]
+		[ "$(grep -c 'workers versions create ' "${FAKE_CF_LOG}")" -eq 1 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+		[ ! -s "${GITHUB_STEP_SUMMARY}" ]
+		assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
+		[[ ${output} != *sensitive-example-token* ]]
+		[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+	done
+}
+
+@test "v2 environments without GNU date retain the existing pinned CLI readback" {
+	export FAKE_DATE_UNSUPPORTED=true
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments get 22222222-2222-4222-8222-222222222222 --worker worker'
+	[ ! -e "${FAKE_CURL_LOG}" ]
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
+}
+
+@test "v2 environments without curl retain the existing pinned CLI readback" {
+	local minimal_path="${BATS_TEST_TMPDIR}/without-curl"
+	mkdir -p "${minimal_path}"
+	for name in env bash dirname jq date cat mktemp rm; do
+		ln -s "$(command -v "${name}")" "${minimal_path}/${name}"
+	done
+	ln -s "${repo_root}/tests/fake-bin/mise" "${minimal_path}/mise"
+	ln -s "${repo_root}/tests/fake-bin/cf" "${minimal_path}/cf"
+	run env PATH="${minimal_path}" INPUT_MODE=production INPUT_WORKING_DIRECTORY=worker \
+		INPUT_WORKER=worker INPUT_CLOUDFLARE_ACCOUNT_ID=account INPUT_CLOUDFLARE_API_TOKEN=token \
+		"${repo_root}/src/deploy.sh"
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments get 22222222-2222-4222-8222-222222222222 --worker worker'
+	[ ! -e "${FAKE_CURL_LOG}" ]
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
+}
+
+@test "a missing enhanced readback helper fails before publication" {
+	local action_copy="${BATS_TEST_TMPDIR}/action"
+	mkdir -p "${action_copy}/src"
+	cp "${repo_root}/src/deploy.sh" "${repo_root}/src/cf.sh" "${action_copy}/src/"
+	run env INPUT_MODE=production INPUT_WORKING_DIRECTORY=worker INPUT_WORKER=worker \
+		INPUT_CLOUDFLARE_ACCOUNT_ID=account INPUT_CLOUDFLARE_API_TOKEN=token \
+		"${action_copy}/src/deploy.sh"
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *deployment_readback_helper_unavailable* ]]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments create'
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "the native composite production invocation works without Bats observation variables" {
+	run env -u FAKE_CURL_LOG -u FAKE_CURL_STATE -u FAKE_DEPLOYMENT_STATE -u FAKE_CLOCK \
+		-u FAKE_CF_LOG -u FAKE_MISE_LOG -u FAKE_CF_SECRETS_LOG \
+		INPUT_MODE=production INPUT_WORKING_DIRECTORY=worker INPUT_WORKER=worker \
+		INPUT_BUILD_MODE=production INPUT_CLOUDFLARE_ACCOUNT_ID=account \
+		INPUT_CLOUDFLARE_API_TOKEN=token INPUT_PRODUCTION_STRATEGY=versions \
+		INPUT_DEPLOY_TRIGGERS=false \
+		bash -c '"$1/src/check-cf.sh" && "$1/src/deploy.sh"' -- "${repo_root}"
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${GITHUB_OUTPUT}" 'effective-mode=production'
+	assert_file_contains "${GITHUB_OUTPUT}" 'version-id=11111111-1111-4111-8111-111111111111'
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
+	assert_file_contains "${GITHUB_OUTPUT}" 'triggers-deployed=false'
+	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+	[ ! -e "${FAKE_DEPLOYMENT_STATE}" ]
+	[ ! -e "${FAKE_CURL_LOG}" ]
 }

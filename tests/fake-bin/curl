@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-method='' destination='' url=''
+method='' destination='' url='' max_time=''
 while (($#)); do
 	case "$1" in
 	--request)
@@ -15,15 +15,140 @@ while (($#)); do
 		[[ $(stat -c '%a' "${2#@}") == 600 ]]
 		shift 2
 		;;
-	--max-time | --write-out) shift 2 ;;
-	--silent | --show-error) shift ;;
+	--max-time)
+		max_time="$2"
+		shift 2
+		;;
+	--connect-timeout | --max-filesize | --max-redirs | --proto | --write-out) shift 2 ;;
+	-q | --silent | --show-error) shift ;;
 	*)
 		url="$1"
 		shift
 		;;
 	esac
 done
+# Composite-action smoke tests do not use Bats' optional observation state.
+# Default only synthetic state beside the private response, covered by Action cleanup.
+: "${FAKE_CURL_LOG:=/dev/null}"
+: "${FAKE_DEPLOYMENT_STATE:=${destination%/*}/fake-deployment.state}"
+: "${FAKE_CURL_STATE:=${destination%/*}/fake-preview.state}"
 printf '%s %s\n' "${method}" "${url}" >>"${FAKE_CURL_LOG}"
+if [[ ${url} == 'https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/deployments' ]]; then
+	[[ ${method} == GET ]]
+	printf '%s\n' "${max_time}" >>"${FAKE_DEPLOYMENT_STATE}.timeouts"
+	status=200
+	body='{"success":true,"errors":[],"result":{"deployments":[{"id":"22222222-2222-4222-8222-222222222222","strategy":"percentage","versions":[{"version_id":"11111111-1111-4111-8111-111111111111","percentage":100}]}]}}'
+	case "${FAKE_CURRENT_DEPLOYMENT:-}" in
+	wrong-id) body="$(jq '.result.deployments[0].id="33333333-3333-4333-8333-333333333333"' <<<"${body}")" ;;
+	wrong-version) body="$(jq '.result.deployments[0].versions[0].version_id="33333333-3333-4333-8333-333333333333"' <<<"${body}")" ;;
+	wrong-percentage) body="$(jq '.result.deployments[0].versions[0].percentage=50' <<<"${body}")" ;;
+	empty) body="$(jq '.result.deployments=[]' <<<"${body}")" ;;
+	malformed) body='bad-json' ;;
+	collection-multiple-json) body="${body}${body}" ;;
+	forbidden) status=403 ;;
+	missing)
+		status=404
+		body='{"success":false,"errors":[{"code":10336}]}'
+		;;
+	network) exit 1 ;;
+	late) printf '30000' >"${FAKE_CLOCK}" ;;
+	timeout)
+		printf '30000' >"${FAKE_CLOCK}"
+		exit 28
+		;;
+	esac
+	printf '%s' "${body}" >"${destination}"
+	printf '%s' "${status}"
+	exit 0
+fi
+if [[ ${url} == */workers/scripts/worker/deployments/* ]]; then
+	[[ ${method} == GET && ${url} == 'https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/deployments/22222222-2222-4222-8222-222222222222' ]]
+	count=0
+	[[ ! -f ${FAKE_DEPLOYMENT_STATE} ]] || count="$(cat "${FAKE_DEPLOYMENT_STATE}")"
+	count=$((count + 1))
+	printf '%s' "${count}" >"${FAKE_DEPLOYMENT_STATE}"
+	printf '%s\n' "${max_time}" >>"${FAKE_DEPLOYMENT_STATE}.timeouts"
+	scenario="${FAKE_DEPLOYMENT_API:-${FAKE_CF_OUTPUT:-}}"
+	[[ ${FAKE_CF_FAILURE:-} != get && ${scenario} != network ]] || exit 1
+	status=200
+	body='{"success":true,"errors":[],"result":{"id":"22222222-2222-4222-8222-222222222222","strategy":"percentage","versions":[{"version_id":"11111111-1111-4111-8111-111111111111","percentage":100}]}}'
+	case "${scenario}" in
+	delayed | near-boundary)
+		if ((count < 3)) || [[ ${scenario} == near-boundary && ${count} == 1 ]]; then
+			status=404
+			body='{"success":false,"errors":[{"code":10336,"message":"sensitive-provider-message"}]}'
+		fi
+		if [[ ${scenario} == near-boundary ]]; then
+			if ((count == 1)); then printf '28999' >"${FAKE_CLOCK}"; else
+				status=200
+				body='{"success":true,"errors":[],"result":{"id":"22222222-2222-4222-8222-222222222222","strategy":"percentage","versions":[{"version_id":"11111111-1111-4111-8111-111111111111","percentage":100}]}}'
+			fi
+		fi
+		;;
+	missing)
+		status=404
+		body='{"success":false,"errors":[{"code":10336}]}'
+		;;
+	wrong-missing)
+		status=404
+		body='{"success":false,"errors":[{"code":10007}]}'
+		;;
+	mixed-errors)
+		status=404
+		body='{"success":false,"errors":[{"code":10336},{"code":10000}]}'
+		;;
+	string-code)
+		status=404
+		body='{"success":false,"errors":[{"code":"10336"}]}'
+		;;
+	malformed-missing)
+		status=404
+		body='bad-json'
+		;;
+	unauthorized)
+		status=401
+		body='{"success":false,"errors":[{"code":10336}]}'
+		;;
+	forbidden)
+		status=403
+		body='{"success":false,"errors":[{"code":10336}]}'
+		;;
+	rate-limit)
+		status=429
+		body='{"success":false,"errors":[{"code":10336}]}'
+		;;
+	server)
+		status=500
+		body='{"success":false,"errors":[{"code":10336}]}'
+		;;
+	redirect) status=302 ;;
+	malformed) body='bad-json' ;;
+	wrong-id) body="$(jq '.result.id="33333333-3333-4333-8333-333333333333"' <<<"${body}")" ;;
+	wrong-readback-version) body="$(jq '.result.versions[0].version_id="33333333-3333-4333-8333-333333333333"' <<<"${body}")" ;;
+	wrong-percentage | wrong-readback-percentage) body="$(jq '.result.versions[0].percentage=50' <<<"${body}")" ;;
+	wrong-strategy) body="$(jq '.result.strategy="other"' <<<"${body}")" ;;
+	multiple-versions) body="$(jq '.result.versions += [.result.versions[0]]' <<<"${body}")" ;;
+	non-array) body="$(jq '.result.versions={}' <<<"${body}")" ;;
+	empty-errors)
+		status=404
+		body='{"success":false,"errors":[]}'
+		;;
+	multiple-json) body="${body}${body}" ;;
+	missing-multiple-json)
+		status=404
+		body='{"success":false,"errors":[{"code":10336}]}{"success":false,"errors":[{"code":10336}]}'
+		;;
+	false-success) body="$(jq '.success=false' <<<"${body}")" ;;
+	late-success) printf '30000' >"${FAKE_CLOCK}" ;;
+	request-timeout)
+		printf '30000' >"${FAKE_CLOCK}"
+		exit 28
+		;;
+	esac
+	printf '%s' "${body}" >"${destination}"
+	printf '%s' "${status}"
+	exit 0
+fi
 scenario="${FAKE_PREVIEW_API:-}"
 [[ ${scenario} == network ]] && exit 1
 status=200
