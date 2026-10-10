@@ -1,6 +1,6 @@
 name: Jactionlint Smoke
 on:
-  # This workflow exists so jactionlint can analyze the local composite action via `uses: ./`.
+  # This workflow lets jactionlint analyze the composite action via `uses: $/`.
   # It is intentionally triggered by an unlikely repository_dispatch type instead of normal CI events.
   repository_dispatch:
     types:
@@ -23,7 +23,7 @@ jobs:
           persist-credentials: false
       - name: Use local action
         # Dummy values are sufficient because this workflow is not expected to run in normal operation.
-        uses: ./ # zizmor: ignore[self-repository] -- Exercise the checked-out local action.
+        uses: $/
         with:
           mode: dry-run
           worker: worker
