@@ -4,7 +4,7 @@ min_version = "2026.10.7"
 
 [tools]
 node = "26.11.1"
-bun = "1.4.2"
+bun = "1.4.3"
 hk = "2.5.0"
 bats = "1.14.0"
 jactionlint = "2.0.2"
