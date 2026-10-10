@@ -1,12 +1,14 @@
 #:schema https://mise.jdx.dev/schema/mise.json
 
+min_version = "2026.10.7"
+
 [tools]
 node = "26.11.1"
 bun = "1.4.2"
 hk = "2.5.0"
 bats = "1.14.0"
-actionlint = "1.7.12"
-# required for actionlint
+jactionlint = "2.0.2"
+# required for jactionlint
 shellcheck = "0.11.0"
 ghalint = "1.5.6"
 pinact = "5.0.0"
