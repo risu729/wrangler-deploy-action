@@ -4,7 +4,7 @@ amends
 import
   "https://raw.githubusercontent.com/risu729/hk-config/v3.0.0/helpers.pkl"
 
-steps =
+local picked =
   helpers.pick(new Listing {
     "github-actions"
     "tombi"
@@ -15,3 +15,19 @@ steps =
     "typos"
     "hygiene"
   })
+
+local yaml = picked["yaml"] as Group
+
+steps = (picked) {
+  ["yaml"] = (yaml) {
+    steps = (yaml.steps) {
+      ["yamllint"] = (yaml.steps["yamllint"]) {
+        // mise generates this dependency lockfile; preserve its digest.
+        exclude = (yaml.steps["yamllint"] as Step).exclude!! + List("**/aube-lock.yaml")
+      }
+      ["yamlfmt"] = (yaml.steps["yamlfmt"]) {
+        exclude = (yaml.steps["yamlfmt"] as Step).exclude!! + List("**/aube-lock.yaml")
+      }
+    }
+  }
+}
