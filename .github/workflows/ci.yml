@@ -56,7 +56,7 @@ jobs:
           echo '{}' > tests/fixtures/worker/.cloudflare/output/v0/config.json
       - name: Test preview action
         id: preview
-        uses: ./ # zizmor: ignore[self-repository] -- Exercise the checked-out local action.
+        uses: $/
         with:
           mode: preview-or-dry-run
           working-directory: tests/fixtures/worker
@@ -75,7 +75,7 @@ jobs:
           [[ "${PREVIEW_ALIAS_URL}" == "https://pr-42-worker.example.workers.dev" ]]
       - name: Test dry-run fallback action
         id: dry-run
-        uses: ./ # zizmor: ignore[self-repository] -- Exercise the checked-out local action.
+        uses: $/
         with:
           mode: preview-or-dry-run
           working-directory: tests/fixtures/worker
@@ -87,7 +87,7 @@ jobs:
         run: test "${EFFECTIVE_MODE}" = "dry-run"
       - name: Test production action
         id: production
-        uses: ./ # zizmor: ignore[self-repository] -- Exercise the checked-out local action.
+        uses: $/
         with:
           mode: production
           working-directory: tests/fixtures/worker
@@ -125,7 +125,7 @@ jobs:
         run: mise run --skip-tools integration:build
       - name: Validate prebuilt Worker with the action
         id: cf
-        uses: ./ # zizmor: ignore[self-repository] -- Exercise the checked-out local action.
+        uses: $/
         with:
           mode: dry-run
           working-directory: tests/fixtures/worker
