@@ -24,6 +24,8 @@ typos = "1.51.1"
 
 [settings]
 experimental = true
+lockfile = true
+lockfile_mode = "generate"
 
 [tasks.check]
 description = "Run hk linters and formatters."
