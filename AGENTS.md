@@ -11,3 +11,9 @@
   Additional permissions depend on the resources explicitly synchronized.
 - `cf` beta still writes version metadata to `WRANGLER_OUTPUT_FILE_PATH`.
   Verify this contract and deployment readback when upgrading the tested CLI.
+
+## Language
+
+- Use English for repository documentation, source comments, commit messages,
+  and pull request titles and descriptions.
+- Preserve the meaning of intentional localization content and test fixtures.
