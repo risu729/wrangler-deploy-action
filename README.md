@@ -316,6 +316,13 @@ the same real cf checks locally and in CI: it builds the fixture, validates the
 prebuilt output through both production strategies without credentials or mutations,
 and checks that mismatched build modes and Preview output are rejected by both.
 Authenticated full deployment and Container rollout readback require caller testing.
+The fixture uses a frozen Bun dependency provider. Integration builds reuse
+unchanged dependencies and reinstall them when its manifest or lockfile changes,
+or when its `node_modules` directory is missing.
+Use `MISE_ENABLE_TOOLS=node,bun mise deps install bun --force` to repair an
+existing installation explicitly. The integration dependency task uses the same
+tool filter because the deps CLI otherwise installs every configured tool,
+including tools omitted by CI's `--skip-tools` integration commands.
 Node.js and Bun versions are pinned in mise. Real scoped-token preview and
 production validation is performed in dotfiles.
 
