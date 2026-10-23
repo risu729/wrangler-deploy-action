@@ -20,6 +20,9 @@ inputs:
     default: production
   preview-name:
     description: Exact Preview name required for worker-preview and delete-preview (for example pr-123).
+  prebuilt:
+    description: 'worker-preview only: false lets cf previews deploy build the Preview itself. Other modes always use prebuilt output.'
+    default: 'true'
   preview-alias:
     description: Stable version preview alias required by preview-or-dry-run.
   cloudflare-account-id:
@@ -77,6 +80,7 @@ runs:
         INPUT_WORKER: ${{ inputs.worker }}
         INPUT_BUILD_MODE: ${{ inputs.build-mode }}
         INPUT_PREVIEW_NAME: ${{ inputs.preview-name }}
+        INPUT_PREBUILT: ${{ inputs.prebuilt }}
         INPUT_PREVIEW_ALIAS: ${{ inputs.preview-alias }}
         INPUT_CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
         INPUT_CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}

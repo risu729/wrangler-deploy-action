@@ -16,6 +16,7 @@ readonly api_token="${INPUT_CLOUDFLARE_API_TOKEN:-}"
 readonly secrets_json="${INPUT_SECRETS_JSON:-}"
 readonly production_strategy="${INPUT_PRODUCTION_STRATEGY:-versions}"
 readonly deploy_triggers="${INPUT_DEPLOY_TRIGGERS:-false}"
+readonly prebuilt="${INPUT_PREBUILT:-true}"
 readonly workspace="${GITHUB_WORKSPACE:-${PWD}}"
 readonly temporary_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 
@@ -44,6 +45,13 @@ true | false) ;;
 esac
 if [[ ${deploy_triggers} == true && ${mode} != production ]]; then
 	fail 'deploy-triggers is only supported in production mode.'
+fi
+case "${prebuilt}" in
+true | false) ;;
+*) fail 'prebuilt must be true or false.' ;;
+esac
+if [[ ${prebuilt} == false && ${mode} != worker-preview ]]; then
+	fail 'prebuilt false is only supported in worker-preview mode.'
 fi
 if [[ -n ${account_id} && -z ${api_token} ]] || [[ -z ${account_id} && -n ${api_token} ]]; then
 	fail 'Cloudflare account ID and API token must be supplied together.'
