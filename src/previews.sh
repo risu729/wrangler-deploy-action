@@ -38,11 +38,16 @@ deployment_id=''
 preview_url=''
 deployment_url=''
 if [[ ${mode} == worker-preview ]]; then
-	[[ -f .cloudflare/output/v0/config.json ]] || fail 'Cloudflare Build Output is missing; build a Preview first.'
+	preview_arguments=(--mode "${build_mode}" --worker "${worker}")
+	if [[ ${prebuilt} == true ]]; then
+		[[ -f .cloudflare/output/v0/config.json ]] || fail 'Cloudflare Build Output is missing; build a Preview first.'
+		preview_arguments=(--prebuilt "${preview_arguments[@]}")
+	fi
 	resolve_cf "${resolved_working_directory}" "${workspace}"
 	export CLOUDFLARE_ACCOUNT_ID="${account_id}" CLOUDFLARE_API_TOKEN="${api_token}" CI=true
 	preview_output="${output_directory}/upload.json"
-	run_cf previews deploy "${preview_name}" --prebuilt --mode "${build_mode}" --worker "${worker}" >"${preview_output}"
+	# Without --prebuilt, cf builds with Preview context; build logs go to stderr.
+	run_cf previews deploy "${preview_name}" "${preview_arguments[@]}" >"${preview_output}"
 	[[ -f ${preview_output} ]] || fail 'cf did not write structured Preview output.'
 	if ! upload="$(jq -sce --arg name "${preview_name}" --arg id "${id_pattern}" --arg url "${url_pattern}" '
 		map(select(.type == "preview"))
