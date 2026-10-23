@@ -5,8 +5,9 @@ Worker-scoped tokens. The repository name remains `wrangler-deploy-action`;
 **v2 runs cf**. Existing v1 releases continue to run Wrangler.
 
 The caller installs and pins `cf`, builds the project, and verifies any artifact
-revision/checksum before invoking this action. The action neither builds nor
-installs tools. It resolves a declared package-local `cf` (including hoisted
+revision/checksum before invoking this action. The action never installs tools,
+and builds only when `worker-preview` opts out of prebuilt output with
+`prebuilt: false`. It resolves a declared package-local `cf` (including hoisted
 packages and Yarn Plug'n'Play), then a configured mise tool. Undeclared
 transitive binaries are ignored.
 
@@ -19,7 +20,7 @@ Human-readable terminal output is never parsed.
 
 | Mode | Behavior |
 | --- | --- |
-| `worker-preview` | Deploy Preview Build Output to a named Workers Preview and verify the resource and latest deployment. |
+| `worker-preview` | Deploy to a named Workers Preview, from Preview Build Output or by letting cf build it, and verify the resource and latest deployment. |
 | `delete-preview` | Delete the exact named Preview and verify its absence; already missing is success. No build or cf installation is required. |
 | `preview-or-dry-run` | With credentials, upload a version with a stable preview alias. With neither credential, validate without uploading. |
 | `dry-run` | Validate existing Build Output without uploading, rebuilding, or changing traffic. |
@@ -128,16 +129,15 @@ checks in the calling workflow. Only deploy production after those checks pass.
 
 ### Workers Previews for pull requests
 
-Build Preview output with the pinned Cloudflare Vite plugin, then deploy with the pinned cf:
+Install the project dependencies, then let the pinned cf build and deploy the
+Preview, as in Cloudflare's documented `cf previews deploy` flow:
 
 ```yaml
-- name: Build Preview
-  working-directory: worker
-  run: bun run cf-vite build --preview
 - name: Deploy Preview
   uses: risu729/wrangler-deploy-action@V2_COMMIT_SHA
   with:
     mode: worker-preview
+    prebuilt: false
     working-directory: worker
     worker: dotfiles-worker
     preview-name: pr-${{ github.event.pull_request.number }}
@@ -145,9 +145,18 @@ Build Preview output with the pinned Cloudflare Vite plugin, then deploy with th
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 ```
 
-The action calls `cf previews deploy <preview-name> --prebuilt`. cf rejects
-production output here, and rejects Preview output for production deployment.
-Archive production artifacts before creating Preview output in the same folder.
+With `prebuilt: false`, the action calls `cf previews deploy <preview-name>`,
+which builds with Preview context so a function-form `cloudflare.config.ts` sees
+`isPreview: true`. The build writes to the same `.cloudflare/output/v0` folder;
+archive production artifacts first. Build logs go to stderr; the JSON result on
+stdout is verified as before.
+
+The default `prebuilt: true` calls `cf previews deploy <preview-name> --prebuilt`
+and requires existing Preview Build Output. cf has no documented standalone
+Preview build command: `cf build` has no Preview flag, and cf only sets the
+internal `CLOUDFLARE_PREVIEW_BUILD=true` variable for its own Preview builds.
+cf rejects production output for Previews, and rejects Preview output for
+production deployment.
 Preview names must be lowercase DNS labels of 1–63 characters. Both credentials
 are required; there is no Preview dry-run or authentication-error fallback.
 Run the regular production build and `dry-run` for PRs without credentials.
@@ -246,6 +255,7 @@ version upload operation. This option is restricted to production mode.
 | `working-directory` | `.` | Project directory relative to `GITHUB_WORKSPACE`. |
 | `build-mode` | `production` | Mode recorded by the build; passed as cf `--mode`. |
 | `preview-name` | Empty | Required for Workers Preview deployment and deletion. |
+| `prebuilt` | `true` | `worker-preview` only: `false` lets `cf previews deploy` build the Preview. Other modes always use prebuilt output. |
 | `preview-alias` | Empty | Required for `preview-or-dry-run`. |
 | `cloudflare-account-id` | Empty | Required for authenticated operations. |
 | `cloudflare-api-token` | Empty | Required for authenticated operations. |
