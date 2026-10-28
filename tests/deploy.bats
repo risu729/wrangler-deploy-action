@@ -365,41 +365,18 @@ run_action() {
 	done
 }
 
-@test "Workers Preview deploys prebuilt output and verifies the resource and latest deployment" {
+@test "Workers Preview lets cf build and verifies the resource and latest deployment" {
+	rm "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
 	run run_action worker-preview account token
 	[ "${status}" -eq 0 ]
-	assert_file_contains "${FAKE_CF_LOG}" 'previews deploy pr-42 --prebuilt --mode production --worker worker'
+	assert_file_contains "${FAKE_CF_LOG}" 'previews deploy pr-42 --mode production --worker worker'
+	assert_file_not_contains "${FAKE_CF_LOG}" '--prebuilt'
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions'
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments'
 	assert_file_contains "${GITHUB_OUTPUT}" 'preview-id=preview-123'
 	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=deployment-456'
 	assert_file_contains "${FAKE_CURL_LOG}" '/workers/workers/worker/previews/preview-123/deployments/latest'
 	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
-}
-
-@test "Workers Preview can let cf build without existing output" {
-	rm "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
-	export INPUT_PREBUILT=false
-	run run_action worker-preview account token
-	[ "${status}" -eq 0 ]
-	assert_file_contains "${FAKE_CF_LOG}" 'previews deploy pr-42 --mode production --worker worker'
-	assert_file_not_contains "${FAKE_CF_LOG}" '--prebuilt'
-	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=deployment-456'
-	assert_file_contains "${FAKE_CURL_LOG}" '/workers/workers/worker/previews/preview-123/deployments/latest'
-}
-
-@test "prebuilt false is limited to Workers Preview and must be a boolean" {
-	export INPUT_PREBUILT=false
-	for mode in dry-run preview-or-dry-run production delete-preview; do
-		run run_action "${mode}" account token
-		[ "${status}" -ne 0 ]
-		[[ ${output} == *'prebuilt false is only supported in worker-preview mode'* ]]
-	done
-	export INPUT_PREBUILT=no
-	run run_action worker-preview account token
-	[ "${status}" -ne 0 ]
-	[[ ${output} == *'prebuilt must be true or false'* ]]
-	assert_file_not_contains "${FAKE_CF_LOG}" 'previews deploy'
 }
 
 @test "Workers Preview requires explicit credentials and a safe name" {
