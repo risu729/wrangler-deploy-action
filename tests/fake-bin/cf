@@ -21,6 +21,8 @@ for ((index = 0; index < $# - 1; index++)); do
 	fi
 done
 if [[ "$1 $2" == 'previews deploy' ]]; then
+	# Like cf, keep build logs on stderr so stdout stays the JSON result.
+	printf '%s\n' 'Build complete' >&2
 	[[ ${FAKE_CF_FAILURE:-} == upload ]] && exit 1
 	[[ ${FAKE_CF_OUTPUT:-} == missing ]] && exit 0
 	name="$3"

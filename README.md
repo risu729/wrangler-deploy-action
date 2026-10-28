@@ -2,11 +2,12 @@
 
 Publish prebuilt Cloudflare Workers with `cf`, Workers Previews, version URLs, and
 Worker-scoped tokens. The repository name remains `wrangler-deploy-action`;
-**v2 runs cf**. Existing v1 releases continue to run Wrangler.
+**v2 and later run cf**. Existing v1 releases continue to run Wrangler.
 
 The caller installs and pins `cf`, builds the project, and verifies any artifact
-revision/checksum before invoking this action. The action neither builds nor
-installs tools. It resolves a declared package-local `cf` (including hoisted
+revision/checksum before invoking this action. The action never installs tools,
+and builds only for `worker-preview`, where `cf previews deploy` builds the
+Preview itself. It resolves a declared package-local `cf` (including hoisted
 packages and Yarn Plug'n'Play), then a configured mise tool. Undeclared
 transitive binaries are ignored.
 
@@ -19,7 +20,7 @@ Human-readable terminal output is never parsed.
 
 | Mode | Behavior |
 | --- | --- |
-| `worker-preview` | Deploy Preview Build Output to a named Workers Preview and verify the resource and latest deployment. |
+| `worker-preview` | Let cf build and deploy a named Workers Preview, then verify the resource and latest deployment. |
 | `delete-preview` | Delete the exact named Preview and verify its absence; already missing is success. No build or cf installation is required. |
 | `preview-or-dry-run` | With credentials, upload a version with a stable preview alias. With neither credential, validate without uploading. |
 | `dry-run` | Validate existing Build Output without uploading, rebuilding, or changing traffic. |
@@ -48,7 +49,7 @@ permissions; no additional permission is requested.
 
 The enhanced readback uses existing curl and GNU date when available, as on
 GitHub-hosted Linux runners. Availability is checked before publication. Other
-supported v2 production environments retain the original caller-pinned CLI's
+supported production environments retain the original caller-pinned CLI's
 one-shot exact-ID readback without retries or the additional collection proof;
 the action does not install any tool or change their runtime requirements. The
 [exact deployment](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/get/)
@@ -122,20 +123,18 @@ Migrate the project to `cloudflare.config.ts` first. Install dependencies from
 the lockfile, then build with `cf build`. A Vite build records `production` by
 default; a different build mode must be passed through `build-mode`.
 
-Replace `V2_COMMIT_SHA` below with the full commit SHA of the selected v2 release.
+Replace `V3_COMMIT_SHA` below with the full commit SHA of the selected v3 release.
 Keep workflow triggers, permissions, concurrency, environments, and required
 checks in the calling workflow. Only deploy production after those checks pass.
 
 ### Workers Previews for pull requests
 
-Build Preview output with the pinned Cloudflare Vite plugin, then deploy with the pinned cf:
+Install the project dependencies, then let the pinned cf build and deploy the
+Preview, as in Cloudflare's documented `cf previews deploy` flow:
 
 ```yaml
-- name: Build Preview
-  working-directory: worker
-  run: bun run cf-vite build --preview
 - name: Deploy Preview
-  uses: risu729/wrangler-deploy-action@V2_COMMIT_SHA
+  uses: risu729/wrangler-deploy-action@V3_COMMIT_SHA
   with:
     mode: worker-preview
     working-directory: worker
@@ -145,9 +144,19 @@ Build Preview output with the pinned Cloudflare Vite plugin, then deploy with th
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 ```
 
-The action calls `cf previews deploy <preview-name> --prebuilt`. cf rejects
-production output here, and rejects Preview output for production deployment.
-Archive production artifacts before creating Preview output in the same folder.
+The action calls `cf previews deploy <preview-name> --mode <build-mode> --worker
+<worker>`, which builds with Preview context so a function-form
+`cloudflare.config.ts` sees `isPreview: true`. Build logs go to stderr; the JSON
+result on stdout is verified. The build writes to the same `.cloudflare/output/v0`
+folder, and production modes reject Preview output, so archive production
+artifacts first.
+
+Unlike production, Previews are not deployed from prebuilt output. cf documents
+no standalone Preview build: `cf build` has no Preview flag, and Preview context
+comes from a variable cf sets internally for its own build. A Preview build is
+also never promoted to production, so build-once-then-deploy offers little here.
+Because cf builds while holding the API token, build-time code such as the Vite
+configuration and its plugins can read it.
 Preview names must be lowercase DNS labels of 1–63 characters. Both credentials
 are required; there is no Preview dry-run or authentication-error fallback.
 Run the regular production build and `dry-run` for PRs without credentials.
@@ -179,7 +188,7 @@ See [Workers Previews](https://developers.cloudflare.com/workers/previews/) and
   run: bun run cf build
 - name: Preview Worker
   id: preview
-  uses: risu729/wrangler-deploy-action@V2_COMMIT_SHA
+  uses: risu729/wrangler-deploy-action@V3_COMMIT_SHA
   with:
     mode: preview-or-dry-run
     working-directory: worker
@@ -201,7 +210,7 @@ this step. The Build Output must be at `.cloudflare/output/v0`.
 ```yaml
 - name: Deploy validated Worker
   id: production
-  uses: risu729/wrangler-deploy-action@V2_COMMIT_SHA
+  uses: risu729/wrangler-deploy-action@V3_COMMIT_SHA
   with:
     mode: production
     working-directory: worker
@@ -246,6 +255,7 @@ version upload operation. This option is restricted to production mode.
 | `working-directory` | `.` | Project directory relative to `GITHUB_WORKSPACE`. |
 | `build-mode` | `production` | Mode recorded by the build; passed as cf `--mode`. |
 | `preview-name` | Empty | Required for Workers Preview deployment and deletion. |
+| `prebuilt` | `true` | `worker-preview` only: `false` lets `cf previews deploy` build the Preview. Other modes always use prebuilt output. |
 | `preview-alias` | Empty | Required for `preview-or-dry-run`. |
 | `cloudflare-account-id` | Empty | Required for authenticated operations. |
 | `cloudflare-api-token` | Empty | Required for authenticated operations. |
@@ -288,6 +298,13 @@ The action supports Linux runners with Bash, jq, curl, and a Node.js version sup
 by the caller's pinned cf (currently Node.js 22.18 or later). It does not create
 or broaden API tokens.
 
+## Migrating from v2
+
+- `worker-preview` now runs `cf previews deploy` without `--prebuilt`, so cf
+  builds the Preview. Remove the separate Preview build step and install the
+  project dependencies in the deploying job instead.
+- Other modes are unchanged.
+
 ## Migrating from v1
 
 - Migrate the project and pin cf, then build before invoking the action.
@@ -296,7 +313,7 @@ or broaden API tokens.
 - Replace `deployment-targets` consumers with `version-id` and `deployment-id`.
 - Trigger synchronization is now explicit; production no longer updates routes
   or Custom Domains by default.
-- Pin a v2 release commit. Existing v1 tags and commit references are unchanged.
+- Pin a v3 release commit. Existing v1 tags and commit references are unchanged.
 
 See the [v1 documentation](https://github.com/risu729/wrangler-deploy-action/blob/v1.2.0/README.md)
 for Wrangler callers and the [cf migration guide](https://developers.cloudflare.com/cf/wrangler/migrate/)
