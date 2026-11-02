@@ -353,7 +353,7 @@ url = "https://nodejs.org/dist/v26.13.0/node-v26.13.0-win-x64.zip"
 
 [[tools."npm:semantic-release"]]
 version = "25.0.9"
-aube = { path = ".mise/locks/npm-semantic-release/25.0.9", digest = "sha256:adbe0b26c7a62f017e3560b0306c86dc9b3a0666f751e3a5f3526f8e504af8ac" }
+aube = { path = ".mise/locks/npm-semantic-release/25.0.9", digest = "sha256:c4126f65c1c83e6908f090215fdafb90e6aec48f8ddd585cc2809499edc582ef" }
 backend = "npm:semantic-release"
 specifiers = ["25.0.9"]
 
