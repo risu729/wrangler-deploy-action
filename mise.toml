@@ -27,6 +27,16 @@ experimental = true
 lockfile = true
 lockfile_mode = "generate"
 
+[deps.bun]
+dir = "tests/fixtures/worker"
+run = "bun install --frozen-lockfile"
+
+[tasks."integration:deps"]
+description = "Install the pinned real cf fixture dependencies when needed."
+# The deps CLI otherwise installs unrelated repository tools, even after --skip-tools.
+env.MISE_ENABLE_TOOLS = "node,bun"
+run = "mise deps install bun"
+
 [tasks.check]
 description = "Run hk linters and formatters."
 usage = '''
