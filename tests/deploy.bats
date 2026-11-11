@@ -47,7 +47,9 @@ CLOCK_SLEEP
 
 	mkdir -p "${GITHUB_WORKSPACE}/worker" "${RUNNER_TEMP}"
 	mkdir -p "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0"
-	touch "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
+	printf '%s\n' '{}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
+	mkdir -p "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default"
+	printf '%s\n' '{"name":"worker"}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
 	: >"${GITHUB_OUTPUT}"
 	: >"${GITHUB_STEP_SUMMARY}"
 	: >"${FAKE_MISE_LOG}"
@@ -727,4 +729,89 @@ run_action() {
 	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
 	[ ! -e "${FAKE_DEPLOYMENT_STATE}" ]
 	[ ! -e "${FAKE_CURL_LOG}" ]
+}
+
+set_domain_fixture() {
+	export INPUT_DEPLOY_TRIGGERS=true
+	printf '%s\n' '{"name":"worker","domains":["example.com"]}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
+}
+
+@test "domain guard verifies existing attachments three times" {
+	set_domain_fixture
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	[ "$(cat "${FAKE_CURL_STATE}")" -eq 3 ]
+	assert_file_contains "${GITHUB_OUTPUT}" 'triggers-deployed=true'
+}
+
+@test "domain guard permits a new nonconflicting domain and requires it after deploy" {
+	set_domain_fixture
+	export FAKE_DOMAIN_API=added
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	[ "$(cat "${FAKE_CURL_STATE}")" -eq 3 ]
+}
+
+@test "domain guard stops before publication on failures and ownership conflicts" {
+	set_domain_fixture
+	for scenario in forbidden network malformed missing-array empty modified wrong-worker wrong-host malformed-flags removed conflict; do
+		export FAKE_DOMAIN_API="${scenario}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+		[ ! -s "${GITHUB_OUTPUT}" ]
+		[[ ${output} != *'Bearer token'* ]]
+	done
+}
+
+@test "domain guard checks again before trigger writes" {
+	set_domain_fixture
+	export FAKE_DOMAIN_API=late-conflict
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments create'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers deploy'
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "domain guard refuses a domain still missing after trigger deployment" {
+	set_domain_fixture
+	export FAKE_DOMAIN_API=persistent-added
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	assert_file_contains "${FAKE_CF_LOG}" 'workers triggers deploy'
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "domain guard checks the full deployment strategy before mutation" {
+	set_domain_fixture
+	export INPUT_PRODUCTION_STRATEGY=deploy FAKE_DOMAIN_API=conflict
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	assert_file_not_contains "${FAKE_CF_LOG}" ' :: deploy '
+}
+
+@test "domain guard rejects duplicate Worker identities before publication" {
+	set_domain_fixture
+	mkdir -p "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/another"
+	cp "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json" "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/another/worker.config.json"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+}
+
+@test "domain guard rejects an artifact targeting a different account" {
+	set_domain_fixture
+	printf '%s\n' '{"accountId":"different-account"}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+}
+
+@test "domain guard verifies explicitly declared domain flags" {
+	set_domain_fixture
+	printf '%s\n' '{"name":"worker","domains":[{"hostname":"example.com","production":false,"previews":true}]}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
 }

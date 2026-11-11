@@ -19,7 +19,7 @@ while (($#)); do
 		max_time="$2"
 		shift 2
 		;;
-	--connect-timeout | --max-filesize | --max-redirs | --proto | --write-out) shift 2 ;;
+	--data-binary | --connect-timeout | --max-filesize | --max-redirs | --proto | --write-out) shift 2 ;;
 	-q | --silent | --show-error) shift ;;
 	*)
 		url="$1"
@@ -33,6 +33,39 @@ done
 : "${FAKE_DEPLOYMENT_STATE:=${destination%/*}/fake-deployment.state}"
 : "${FAKE_CURL_STATE:=${destination%/*}/fake-preview.state}"
 printf '%s %s\n' "${method}" "${url}" >>"${FAKE_CURL_LOG}"
+if [[ ${url} == */domains/changeset?replace_state=true ]]; then
+	[[ ${method} == POST ]]
+	count=0
+	[[ ! -f ${FAKE_CURL_STATE} ]] || count="$(cat "${FAKE_CURL_STATE}")"
+	count=$((count + 1))
+	printf '%s' "${count}" >"${FAKE_CURL_STATE}"
+	body='{"success":true,"errors":[],"result":{"added":[],"updated":[{"hostname":"example.com","service":"worker","modified":false,"enabled":true,"previews_enabled":false}],"removed":[],"conflicting":[]}}'
+	status=200
+	case "${FAKE_DOMAIN_API:-}" in
+	forbidden) status=403 ;;
+	network) exit 1 ;;
+	malformed) body='invalid-json' ;;
+	missing-array) body="$(jq 'del(.result.removed)' <<<"${body}")" ;;
+	empty) body="$(jq '.result.updated=[]' <<<"${body}")" ;;
+	modified) body="$(jq '.result.updated[0].modified=true' <<<"${body}")" ;;
+	malformed-flags) body="$(jq '.result.updated[0].enabled=null | .result.updated[0].previews_enabled="yes"' <<<"${body}")" ;;
+	wrong-worker) body="$(jq '.result.updated[0].service="other"' <<<"${body}")" ;;
+	wrong-host) body="$(jq '.result.updated[0].hostname="other.com"' <<<"${body}")" ;;
+	removed) body="$(jq '.result.removed=[{"hostname":"old.com"}]' <<<"${body}")" ;;
+	conflict) body="$(jq '.result.conflicting=[{"hostname":"example.com"}]' <<<"${body}")" ;;
+	late-conflict)
+		if ((count >= 2)); then body="$(jq '.result.conflicting=[{"hostname":"example.com"}]' <<<"${body}")"; fi
+		;;
+	added | persistent-added)
+		if ((count < 3)) || [[ ${FAKE_DOMAIN_API} == persistent-added ]]; then
+			body="$(jq '.result.added=.result.updated | .result.updated=[]' <<<"${body}")"
+		fi
+		;;
+	esac
+	printf '%s' "${body}" >"${destination}"
+	printf '%s' "${status}"
+	exit 0
+fi
 if [[ ${url} == 'https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/deployments' ]]; then
 	[[ ${method} == GET ]]
 	printf '%s\n' "${max_time}" >>"${FAKE_DEPLOYMENT_STATE}.timeouts"
