@@ -764,6 +764,24 @@ set_domain_fixture() {
 	done
 }
 
+@test "domain guard logs only bounded numeric error diagnostics" {
+	set_domain_fixture
+	for scenario in forbidden malformed-error excess-errors; do
+		export FAKE_DOMAIN_API="${scenario}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		case "${scenario}" in
+		forbidden) [[ ${output} == *'HTTP status: 403; Cloudflare error codes: [10000]'* ]] ;;
+		malformed-error) [[ ${output} == *'HTTP status: 502; Cloudflare error codes: []'* ]] ;;
+		excess-errors) [[ ${output} == *'HTTP status: 429; Cloudflare error codes: []'* ]] ;;
+		esac
+		[[ ${output} == *'domain_guard_response_failed'* ]]
+		[[ ${output} != *'secret-'* && ${output} != *'sensitive-provider-message'* && ${output} != *'Bearer token'* ]]
+		assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+		[ ! -s "${GITHUB_OUTPUT}" ]
+	done
+}
+
 @test "domain guard checks again before trigger writes" {
 	set_domain_fixture
 	export FAKE_DOMAIN_API=late-conflict

@@ -38,7 +38,7 @@ prepare_domain_guard() {
 }
 
 verify_domain_changeset() {
-	local phase="$1" status
+	local phase="$1" status codes
 	[[ ${domain_guard_enabled} == true ]] || return 0
 	if ! status="$(curl -q --silent --proto '=https' --max-redirs 0 --max-time 30 --connect-timeout 10 \
 		--max-filesize 1048576 --request POST --header "@${output_directory}/domain-headers" \
@@ -46,7 +46,17 @@ verify_domain_changeset() {
 		--write-out '%{http_code}' "https://api.cloudflare.com/client/v4/accounts/${account_id}/workers/scripts/${worker}/domains/changeset?replace_state=true")"; then
 		fail 'domain_guard_request_failed'
 	fi
-	[[ ${status} == 200 ]] || fail 'domain_guard_response_failed'
+	if [[ ${status} != 200 ]]; then
+		[[ ${status} =~ ^[0-9]{3}$ ]] || status=unknown
+		codes="$(jq --slurp --compact-output --exit-status '
+			if length == 1 and (.[0] | type == "object") then .[0].errors else null end
+			| if type == "array" and length <= 10 then
+				[.[] | .code | select(type == "number") | select(. >= 0 and . <= 999999999 and floor == .)]
+			else [] end
+		' "${output_directory}/domain-changeset.json" 2>/dev/null)" || codes='[]'
+		printf 'Domain changeset HTTP status: %s; Cloudflare error codes: %s\n' "${status}" "${codes}" >&2
+		fail 'domain_guard_response_failed'
+	fi
 	if ! jq --slurp --exit-status --arg phase "${phase}" --arg worker "${worker}" \
 		--slurpfile desired "${output_directory}/domain-origins.json" '
 		length == 1 and (.[0] | .success == true and (.errors | type == "array" and length == 0)

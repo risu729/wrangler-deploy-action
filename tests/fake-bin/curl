@@ -42,7 +42,18 @@ if [[ ${url} == */domains/changeset?replace_state=true ]]; then
 	body='{"success":true,"errors":[],"result":{"added":[],"updated":[{"hostname":"example.com","service":"worker","modified":false,"enabled":true,"previews_enabled":false}],"removed":[],"conflicting":[]}}'
 	status=200
 	case "${FAKE_DOMAIN_API:-}" in
-	forbidden) status=403 ;;
+	forbidden)
+		status=403
+		body='{"success":false,"errors":[{"code":10000,"message":"sensitive-provider-message"},{"code":"secret-string"},{"code":1.5},{"code":-1},{"code":1000000000}]}'
+		;;
+	malformed-error)
+		status=502
+		body='secret-non-json-body'
+		;;
+	excess-errors)
+		status=429
+		body="$(jq -nc '{errors:[range(11)|{code:10000,message:"sensitive-provider-message"}]}')"
+		;;
 	network) exit 1 ;;
 	malformed) body='invalid-json' ;;
 	missing-array) body="$(jq 'del(.result.removed)' <<<"${body}")" ;;
