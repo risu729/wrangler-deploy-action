@@ -116,6 +116,14 @@ if [[ -n ${secrets_json} ]]; then
 	arguments+=(--secrets-file "${secrets_file}")
 fi
 
+if [[ ${effective_mode} == production && ${deploy_triggers} == true ]]; then
+	# Read the same prebuilt declaration and credential before any publication.
+	# shellcheck source=src/domain-guard.sh
+	source "${script_directory}/domain-guard.sh"
+	prepare_domain_guard
+	verify_domain_changeset before
+fi
+
 upload_type=version-upload
 if [[ ${production_strategy} == deploy ]]; then
 	# cf owns Container images, application updates, and trigger synchronization.
@@ -194,8 +202,12 @@ if [[ ${effective_mode} == production ]]; then
 		(($(deployment_now_ms) < deployment_readback_deadline)) || fail 'deployment_readback_pending'
 	fi
 	if [[ ${deploy_triggers} == true && ${production_strategy} == versions ]]; then
+		verify_domain_changeset before
 		run_cf workers triggers deploy --prebuilt --mode "${build_mode}" --worker "${worker}"
 		triggers_deployed=true
+	fi
+	if [[ ${deploy_triggers} == true ]]; then
+		verify_domain_changeset after
 	fi
 fi
 

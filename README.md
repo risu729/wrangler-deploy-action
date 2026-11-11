@@ -72,6 +72,32 @@ are preserved by default. Set `deploy-triggers: 'true'` explicitly to run
 If trigger synchronization fails, the action fails, but the new version has
 already been deployed. No automatic rollback is attempted.
 
+### Custom Domain checks
+
+Opt-in production trigger synchronization reads the selected prebuilt Worker's
+Custom Domain declarations before uploading. An explicit artifact account ID must
+match the supplied account ID. For nonempty domain declarations,
+it requests the legacy script-scoped changeset using the deployment credential,
+and refuses HTTP/schema failures, conflicting DNS, removals, changed existing
+domains, and incomplete hostname results. The versions strategy checks again
+immediately before trigger synchronization. After synchronization it requires
+all declared hostnames to be unchanged existing attachments to the same Worker.
+No extra domain-list permission or second credential is introduced. Undeclared
+or empty domain lists preserve cf's existing behavior and skip these checks.
+
+The contract was checked against cf beta.28 and four live no-change responses:
+unchanged domains appear in `updated` with `modified: false`; an empty result does
+not prove a nonempty declaration. Tests use synthetic copies of that response
+shape. The action fails before publication when the actual credential cannot
+read the changeset. Domain removal or changing an existing attachment requires
+separately reviewed maintenance; it cannot pass this routine guard.
+
+These checks are not an atomic ownership lock. cf beta.28 still sends overwrite
+flags in its noninteractive final write, so an external concurrent change between
+the check and write can race it. Serialize production deployments and keep one
+writer. A postcheck failure can occur after publication and does not roll back.
+The checks cover Custom Domains; cf remains responsible for other trigger types.
+
 ### Full production deployment for Container applications
 
 Set `production-strategy: deploy` and `deploy-triggers: 'true'` together to let
@@ -282,8 +308,10 @@ only after the requested operation completes successfully.
 Use `Individual Workers Editor` restricted to the existing target Worker for
 version uploads and deployments. Always supply the account ID as well. The
 default deployment preserves an existing Custom Domain without updating it.
-Per-Worker tokens cannot manage Custom Domains; an explicit trigger update
-needs suitable permissions for its declared resources. Queue, database, or
+An explicit trigger update needs suitable permissions for its declared resources.
+The legacy script-scoped Custom Domain endpoint and the public account-wide domain
+API have different authorization paths; verify the actual deployment credential
+rather than adding account-wide script permissions by assumption. Queue, database, or
 other resource provisioning can need additional product permissions.
 
 `production-strategy: deploy` needs permissions for every configured resource
