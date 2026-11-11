@@ -32,6 +32,8 @@ jobs:
           version: 2026.11.5
       - name: Lint
         run: mise run check --lint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
   test:
     name: Test
     runs-on: ubuntu-26.04
