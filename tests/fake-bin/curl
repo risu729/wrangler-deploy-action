@@ -77,6 +77,37 @@ if [[ ${url} == */domains/changeset?replace_state=true ]]; then
 	printf '%s' "${status}"
 	exit 0
 fi
+if [[ ${url} == */script-settings ]]; then
+	[[ ${method} == GET && ${url} == 'https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/script-settings' ]]
+	count=0
+	[[ ! -f ${FAKE_DEPLOYMENT_STATE}.settings ]] || count="$(cat "${FAKE_DEPLOYMENT_STATE}.settings")"
+	count=$((count + 1))
+	printf '%s' "${count}" >"${FAKE_DEPLOYMENT_STATE}.settings"
+	status=200
+	disabled='{"enabled":false,"head_sampling_rate":1,"logs":{"enabled":false,"head_sampling_rate":1,"invocation_logs":true,"persist":true}}'
+	declared='{"enabled":true,"head_sampling_rate":1,"issues":{"enabled":true},"logs":{"enabled":true,"head_sampling_rate":1,"invocation_logs":true,"persist":true}}'
+	observability="${disabled}"
+	case "${FAKE_SCRIPT_SETTINGS:-}" in
+	declared) observability="${declared}" ;;
+	lagging) ((count < 3)) || observability="${declared}" ;;
+	absent) observability=null ;;
+	esac
+	body="$(jq -nc --argjson observability "${observability}" \
+		'{success:true,errors:[],result:({logpush:false,tail_consumers:null,tags:[]} + if $observability == null then {} else {observability:$observability} end)}')"
+	case "${FAKE_SCRIPT_SETTINGS:-}" in
+	forbidden)
+		status=403
+		body='{"success":false,"errors":[{"code":10000,"message":"sensitive-provider-message"}]}'
+		;;
+	malformed) body='bad-json' ;;
+	invalid-observability) body="$(jq -c '.result.observability="sensitive-provider-message"' <<<"${body}")" ;;
+	false-success) body="$(jq -c '.success=false' <<<"${body}")" ;;
+	network) exit 1 ;;
+	esac
+	printf '%s' "${body}" >"${destination}"
+	printf '%s' "${status}"
+	exit 0
+fi
 if [[ ${url} == 'https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/deployments' ]]; then
 	[[ ${method} == GET ]]
 	printf '%s\n' "${max_time}" >>"${FAKE_DEPLOYMENT_STATE}.timeouts"
@@ -87,6 +118,14 @@ if [[ ${url} == 'https://api.cloudflare.com/client/v4/accounts/account/workers/s
 	wrong-version) body="$(jq '.result.deployments[0].versions[0].version_id="33333333-3333-4333-8333-333333333333"' <<<"${body}")" ;;
 	wrong-percentage) body="$(jq '.result.deployments[0].versions[0].percentage=50' <<<"${body}")" ;;
 	empty) body="$(jq '.result.deployments=[]' <<<"${body}")" ;;
+	bad-id) body="$(jq '.result.deployments[0].id="invalid"' <<<"${body}")" ;;
+	lagging)
+		count=0
+		[[ ! -f ${FAKE_DEPLOYMENT_STATE}.current ]] || count="$(cat "${FAKE_DEPLOYMENT_STATE}.current")"
+		count=$((count + 1))
+		printf '%s' "${count}" >"${FAKE_DEPLOYMENT_STATE}.current"
+		if ((count < 3)); then body="$(jq '.result.deployments[0].id="33333333-3333-4333-8333-333333333333" | .result.deployments[0].versions[0].version_id="33333333-3333-4333-8333-333333333333"' <<<"${body}")"; fi
+		;;
 	malformed) body='bad-json' ;;
 	collection-multiple-json) body="${body}${body}" ;;
 	forbidden) status=403 ;;
