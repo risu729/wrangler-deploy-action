@@ -559,7 +559,7 @@ run_action() {
 		[ ! -s "${GITHUB_OUTPUT}" ]
 	done
 	unset FAKE_CF_FAILURE
-	for scenario in bad-id forbidden malformed network; do
+	for scenario in bad-id bad-versions forbidden malformed network; do
 		export FAKE_CURRENT_DEPLOYMENT="${scenario}"
 		printf '0' >"${FAKE_CLOCK}"
 		run run_action production account token
@@ -686,7 +686,7 @@ run_action() {
 }
 
 @test "historical resource proof cannot pass after another deployment keeps current traffic" {
-	for scenario in wrong-id wrong-version wrong-percentage empty; do
+	for scenario in wrong-id empty; do
 		export FAKE_CURRENT_DEPLOYMENT="${scenario}" INPUT_DEPLOY_TRIGGERS=true
 		rm -f "${FAKE_DEPLOYMENT_STATE}"
 		printf '0' >"${FAKE_CLOCK}"
@@ -704,8 +704,33 @@ run_action() {
 	done
 }
 
+@test "the exact deployment listed with other versions fails without waiting" {
+	for scenario in wrong-version wrong-percentage; do
+		export FAKE_CURRENT_DEPLOYMENT="${scenario}" INPUT_DEPLOY_TRIGGERS=true
+		rm -f "${FAKE_DEPLOYMENT_STATE}"
+		printf '0' >"${FAKE_CLOCK}"
+		: >"${GITHUB_OUTPUT}"
+		: >"${FAKE_CF_LOG}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[[ ${output} == *deployment_readback_current_mismatch* ]]
+		[ "$(cat "${FAKE_CLOCK}")" -eq 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+		assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
+	done
+}
+
+@test "a mismatch observed before a late request reports the mismatch" {
+	export FAKE_CURRENT_DEPLOYMENT=wrong-id INPUT_DEPLOY_TRIGGERS=true FAKE_CURL_LATENCY_MS=700
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *deployment_readback_current_mismatch* ]]
+	[[ ${output} != *deployment_readback_pending* ]]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
 @test "current list request and schema failures stop without waiting" {
-	for scenario in bad-id malformed collection-multiple-json forbidden missing network late timeout; do
+	for scenario in bad-id bad-versions malformed collection-multiple-json forbidden missing network late timeout; do
 		export FAKE_CURRENT_DEPLOYMENT="${scenario}" INPUT_DEPLOY_TRIGGERS=true
 		rm -f "${FAKE_DEPLOYMENT_STATE}"
 		printf '0' >"${FAKE_CLOCK}"
@@ -975,8 +1000,42 @@ set_observability_fixture() {
 	printf '%s\n' '{"name":"worker"}' >"${output_root}/copy/worker.config.json"
 	run run_action production account token
 	[ "${status}" -ne 0 ]
+	[[ ${output} == *script_settings_build_output_invalid* ]]
+	rm -r "${output_root}/copy" "${output_root}/default"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *script_settings_build_output_missing* ]]
 	assert_file_not_contains "${FAKE_CF_LOG}" 'deploy --prebuilt'
 	[ ! -s "${GITHUB_OUTPUT}" ]
+	[ ! -e "${FAKE_CURL_LOG}" ]
+}
+
+@test "a settings mismatch observed before a late request still reports its paths" {
+	set_observability_fixture
+	export FAKE_CURL_LATENCY_MS=150
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'Script settings differing from the Build Output: ["observability.enabled","observability.issues.enabled","observability.logs.enabled"]'* ]]
+	[[ ${output} == *script_settings_readback_mismatch* ]]
+	[[ ${output} != *script_settings_readback_pending* ]]
+}
+
+@test "declared arrays compare whole and a different response shape is a mismatch" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true FAKE_SCRIPT_SETTINGS=custom
+	printf '%s\n' '{"name":"worker","observability":{"enabled":true,"logs":{"enabled":true,"destinations":["a"]}}}' \
+		>"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
+	for actual in '{"enabled":true,"logs":{"enabled":true,"destinations":["a","b"]}}' '{"enabled":true,"logs":false}'; do
+		export FAKE_SCRIPT_SETTINGS_OBSERVABILITY="${actual}"
+		printf '0' >"${FAKE_CLOCK}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[[ ${output} == *script_settings_readback_mismatch* ]]
+		[[ ${output} == *'"observability.logs.destinations"'* ]]
+	done
+	export FAKE_SCRIPT_SETTINGS_OBSERVABILITY='{"enabled":true,"head_sampling_rate":1,"logs":{"enabled":true,"destinations":["a"],"persist":true}}'
+	printf '0' >"${FAKE_CLOCK}"
+	run run_action production account token
+	[ "${status}" -eq 0 ]
 }
 
 @test "full production deployment requires API readback tools before publication" {

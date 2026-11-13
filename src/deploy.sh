@@ -122,6 +122,10 @@ if [[ -n ${secrets_json} ]]; then
 	arguments+=(--secrets-file "${secrets_file}")
 fi
 
+if [[ ${effective_mode} == production && ${production_strategy} == deploy ]]; then
+	# A local Build Output check, before any network call or publication.
+	prepare_script_settings_expectation
+fi
 if [[ ${effective_mode} == production && ${deploy_triggers} == true ]]; then
 	# Read the same prebuilt declaration and credential before any publication.
 	# shellcheck source=src/domain-guard.sh
@@ -135,7 +139,6 @@ if [[ ${production_strategy} == deploy ]]; then
 	# cf owns Container images, application updates, and trigger synchronization.
 	# It deploys the prebuilt Worker once; do not activate another version later.
 	upload_type=deploy
-	[[ ${effective_mode} != production ]] || prepare_script_settings_expectation
 	run_cf deploy "${arguments[@]}"
 else
 	run_cf workers versions create "${arguments[@]}"

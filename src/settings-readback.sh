@@ -1,6 +1,7 @@
 # shellcheck shell=bash
 # Loaded before publication for production-strategy deploy.
-# shellcheck disable=SC2154
+# Shared readback state is defined in deployment-readback.sh.
+# shellcheck disable=SC2034,SC2154
 
 # cf deploy applies non-versioned script settings after it activates the version, but
 # reports a failed settings write only as a warning. Read the setting back instead.
@@ -54,24 +55,29 @@ verify_script_settings() {
 				and (.result | type == "object")
 				and (.result.observability | type == "object" or type == "null"))
 			then (.[0].result | .observability //= {enabled: false}) as $actual
-				| [$desired[0] | paths(type != "object" and type != "array") as $path
-					| select(($actual | getpath($path)) != ($desired[0] | getpath($path)))
+				| [$desired[0] | paths(type != "object") as $path
+					# Arrays are compared whole; a different response shape is a mismatch.
+					| select($path | all(.[]; type == "string"))
+					| select(($actual | try getpath($path) catch "type mismatch") != ($desired[0] | getpath($path)))
 					| $path | map(tostring) | join(".")]
 			else error("invalid script settings") end
 		' "${response}" 2>/dev/null)"; then
 			fail 'script_settings_readback_response_failed'
 		fi
-		[[ ${mismatched} == '[]' ]] && return 0
+		if [[ ${mismatched} == '[]' ]]; then
+			readback_mismatch_code=""
+			readback_mismatch_detail=""
+			return 0
+		fi
+		# Setting paths are configuration keys, never values or secrets.
+		readback_mismatch_code=script_settings_readback_mismatch
+		readback_mismatch_detail="Script settings differing from the Build Output: ${mismatched}"
 		remaining=$((deadline - $(deployment_now_ms)))
 		if ((remaining > 0)); then
 			((remaining < 1000)) || remaining=1000
 			printf -v sleep_time '%d.%03d' "$((remaining / 1000))" "$((remaining % 1000))"
 			sleep "${sleep_time}"
 		fi
-		if (($(deployment_now_ms) >= deadline)); then
-			# Setting paths are configuration keys, never values or secrets.
-			printf 'Script settings differing from the Build Output: %s\n' "${mismatched}" >&2
-			fail 'script_settings_readback_mismatch'
-		fi
+		(($(deployment_now_ms) < deadline)) || readback_expired script_settings_readback
 	done
 }

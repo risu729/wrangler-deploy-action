@@ -33,6 +33,10 @@ done
 : "${FAKE_DEPLOYMENT_STATE:=${destination%/*}/fake-deployment.state}"
 : "${FAKE_CURL_STATE:=${destination%/*}/fake-preview.state}"
 printf '%s %s\n' "${method}" "${url}" >>"${FAKE_CURL_LOG}"
+# Optional synthetic request latency on the fake clock.
+if [[ -n ${FAKE_CURL_LATENCY_MS:-} && -n ${FAKE_CLOCK:-} ]]; then
+	printf '%s' "$(($(cat "${FAKE_CLOCK}") + FAKE_CURL_LATENCY_MS))" >"${FAKE_CLOCK}"
+fi
 if [[ ${url} == */domains/changeset?replace_state=true ]]; then
 	[[ ${method} == POST ]]
 	count=0
@@ -91,6 +95,7 @@ if [[ ${url} == */script-settings ]]; then
 	declared) observability="${declared}" ;;
 	lagging) ((count < 3)) || observability="${declared}" ;;
 	absent) observability=null ;;
+	custom) observability="${FAKE_SCRIPT_SETTINGS_OBSERVABILITY}" ;;
 	esac
 	body="$(jq -nc --argjson observability "${observability}" \
 		'{success:true,errors:[],result:({logpush:false,tail_consumers:null,tags:[]} + if $observability == null then {} else {observability:$observability} end)}')"
@@ -119,6 +124,7 @@ if [[ ${url} == 'https://api.cloudflare.com/client/v4/accounts/account/workers/s
 	wrong-percentage) body="$(jq '.result.deployments[0].versions[0].percentage=50' <<<"${body}")" ;;
 	empty) body="$(jq '.result.deployments=[]' <<<"${body}")" ;;
 	bad-id) body="$(jq '.result.deployments[0].id="invalid"' <<<"${body}")" ;;
+	bad-versions) body="$(jq '.result.deployments[0].versions=["x"]' <<<"${body}")" ;;
 	lagging)
 		count=0
 		[[ ! -f ${FAKE_DEPLOYMENT_STATE}.current ]] || count="$(cat "${FAKE_DEPLOYMENT_STATE}.current")"

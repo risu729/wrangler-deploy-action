@@ -45,7 +45,9 @@ as currently serving 100%. The collection can lag the exact resource, so a
 collection that lists another or no deployment first is read again, at most
 once per second, within the same deadline. If another deployment still serves
 traffic at the deadline, the action fails with
-`deployment_readback_current_mismatch` rather than adopting it. Both reads
+`deployment_readback_current_mismatch` rather than adopting it; that code is
+kept when a later read runs out of budget. Deployments are immutable, so the
+expected deployment listed first with other versions fails at once. Both reads
 share the original deadline; late responses fail.
 Upload/create are never repeated by the action, and optional
 triggers and success outputs wait for this proof. No latest-deployment fallback
@@ -74,16 +76,19 @@ cf deploy writes non-versioned script settings after it activates the version
 and reports a failed settings write only as a warning. Before publication, the
 action reads the selected Worker's `observability` declaration from
 `worker.config.json` and converts its keys to the API's snake case; an absent
-declaration means `{"enabled": false}`, which cf sends in that case. After the
+declaration means `{"enabled": false}`, which cf beta.28 sends in its settings
+write in that case. After the
 deployment proof, it reads
 [script settings](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/get/)
 with the same credential. Every declared value must be present unchanged;
 defaults the API adds for undeclared fields are ignored, and an absent
-`observability` object in the response means disabled. A mismatch is read
-again at most once per second within its own 30-second budget, then fails with
-`script_settings_readback_mismatch` and prints only the differing setting
-paths. HTTP and schema failures print only the status and numeric Cloudflare
-error codes. The action never writes settings itself.
+`observability` object in the response means disabled. Declared arrays must
+match whole, and a value of another shape in the response is a mismatch. A
+mismatch is read again at most once per second within its own 30-second
+budget, then fails with `script_settings_readback_mismatch` and prints only the
+differing setting paths, also when a later read runs out of budget. A non-200
+response prints only the HTTP status and numeric Cloudflare error codes; other
+failures print only a closed code. The action never writes settings itself.
 
 Legacy `preview-or-dry-run` uses version URLs on an existing Worker.
 Use `worker-preview` for branch and PR environments. Neither changes production
