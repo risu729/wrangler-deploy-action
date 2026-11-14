@@ -77,21 +77,6 @@ case "$1 $2 $3" in
 	[[ ${FAKE_CF_FAILURE:-} == deploy ]] && exit 1
 	jq -nc --arg id "${deployment_id}" '{id:$id}'
 	;;
-'workers deployments list')
-	[[ ${FAKE_CF_FAILURE:-} == list ]] && exit 1
-	id="${deployment_id}"
-	version="${version_id}"
-	percentage=100
-	[[ ${FAKE_CF_OUTPUT:-} == wrong-percentage ]] && percentage=50
-	[[ ${FAKE_CF_OUTPUT:-} == wrong-active-version ]] && version=33333333-3333-4333-8333-333333333333
-	[[ ${FAKE_CF_OUTPUT:-} == bad-deployment-id ]] && id=invalid
-	if [[ ${FAKE_CF_OUTPUT:-} == empty-deployments ]]; then
-		printf '%s\n' '{"deployments":[]}'
-	else
-		jq -nc --arg id "${id}" --arg version "${version}" --argjson percentage "${percentage}" \
-			'{deployments:[{id:$id,strategy:"percentage",versions:[{version_id:$version,percentage:$percentage}]}]}'
-	fi
-	;;
 'workers deployments get')
 	[[ ${FAKE_CF_FAILURE:-} == get ]] && exit 1
 	percentage=100

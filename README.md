@@ -30,7 +30,8 @@ The default `production-strategy: versions` and legacy version uploads use `cf w
 --worker <worker>`. Production uses `cf workers deployments create` followed by
 an exact-ID Cloudflare API readback. The opt-in `production-strategy: deploy` uses
 `cf deploy --prebuilt --mode <build-mode> --worker <worker>`, then reads the
-active deployment and verifies that exact returned version at 100%.
+active deployment, verifies that exact returned version at 100%, and verifies
+that the Worker's observability settings match the Build Output.
 
 The versions strategy reads only the deployment UUID returned by the pinned
 CLI's create call, with the same explicit account, Worker and token. A typed
@@ -40,16 +41,23 @@ HTTP 404 response whose error codes are all 10336 is retried within one absolute
 transport, malformed-response or identity failures stop immediately. Success
 requires the same UUID, percentage strategy, and exactly the uploaded version
 at 100%; then a fresh deployment collection must identify that same ID/version
-as currently serving 100%. A different current deployment is refused rather
-than adopted. Both reads share the original deadline; late responses fail.
+as currently serving 100%. The collection can lag the exact resource, so a
+collection that lists another or no deployment first is read again, at most
+once per second, within the same deadline. If another deployment still serves
+traffic at the deadline, the action fails with
+`deployment_readback_current_mismatch` rather than adopting it; that code is
+kept when a later read runs out of budget. Deployments are immutable, so the
+expected deployment listed first with other versions fails at once. Both reads
+share the original deadline; late responses fail.
 Upload/create are never repeated by the action, and optional
 triggers and success outputs wait for this proof. No latest-deployment fallback
 or automatic rollback is added. This read uses existing Worker script read/write
 permissions; no additional permission is requested.
 
 The enhanced readback uses existing curl and GNU date when available, as on
-GitHub-hosted Linux runners. Availability is checked before publication. Other
-supported production environments retain the original caller-pinned CLI's
+GitHub-hosted Linux runners. Availability is checked before publication. The
+`deploy` strategy requires them and fails before publication without them.
+Other production environments using the `versions` strategy retain the original caller-pinned CLI's
 one-shot exact-ID readback without retries or the additional collection proof;
 the action does not install any tool or change their runtime requirements. The
 [exact deployment](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/get/)
@@ -57,8 +65,30 @@ and [current deployment collection](https://developers.cloudflare.com/api/resour
 use the existing Worker-script permission. The token stays in
 an owner-only temporary header file and all response/header files are deleted
 on success or failure. Redirects and user curl configuration are disabled;
-provider bodies and transport diagnostics are not printed. The full `deploy`
-strategy retains its existing CLI list and exact-ID readback behavior.
+provider bodies and transport diagnostics are not printed.
+
+The `deploy` strategy receives a version ID but no deployment UUID from cf. It
+reads the current deployment collection until its first entry serves that exact
+version at 100%, takes that deployment's UUID, and then applies the same
+exact-ID and collection proof within the same 30-second budget.
+
+cf deploy writes non-versioned script settings after it activates the version
+and reports a failed settings write only as a warning. Before publication, the
+action reads the selected Worker's `observability` declaration from
+`worker.config.json` and converts its keys to the API's snake case; an absent
+declaration means `{"enabled": false}`, which cf beta.28 sends in its settings
+write in that case. After the
+deployment proof, it reads
+[script settings](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/get/)
+with the same credential. Every declared value must be present unchanged;
+defaults the API adds for undeclared fields are ignored, and an absent
+`observability` object in the response means disabled. Declared arrays must
+match whole, and a value of another shape in the response is a mismatch. A
+mismatch is read again at most once per second within its own 30-second
+budget, then fails with `script_settings_readback_mismatch` and prints only the
+differing setting paths, also when a later read runs out of budget. A non-200
+response prints only the HTTP status and numeric Cloudflare error codes; other
+failures print only a closed code. The action never writes settings itself.
 
 Legacy `preview-or-dry-run` uses version URLs on an existing Worker.
 Use `worker-preview` for branch and PR environments. Neither changes production
