@@ -28,7 +28,7 @@ source text, and data whose exact wording is required for correctness.
 
 Run `mise run check --lint` and `mise run test` after changes. CI also runs the
 composite action itself with the fakes in [`tests/fake-bin/`](tests/fake-bin),
-and runs `integration:build` and `integration:verify` from
+and runs `integration:build`, `integration:dry-run` and `integration:verify` from
 [`mise-tasks/integration/`](mise-tasks/integration) against
 [`tests/fixtures/worker`](tests/fixtures/worker), which pins the tested `cf`
 version in its `package.json`.

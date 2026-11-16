@@ -130,6 +130,9 @@ jobs:
           mode: dry-run
           working-directory: tests/fixtures/worker
           worker: worker
+      # integration:verify rebuilds the fixture as Preview output, so dry-run first.
+      - name: Dry-run both production strategies with real cf
+        run: mise run --skip-tools integration:dry-run
       - name: Check output and verify real cf behavior
         env:
           EFFECTIVE_MODE: ${{ steps.cf.outputs.effective-mode }}
