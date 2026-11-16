@@ -1,6 +1,6 @@
 #:schema https://mise.jdx.dev/schema/mise.json
 
-min_version = "2026.10.9"
+min_version = "2026.10.19"
 
 [tools]
 node = "26.13.1"
@@ -25,7 +25,6 @@ typos = "1.52.2"
 [settings]
 experimental = true
 lockfile = true
-lockfile_mode = "generate"
 
 [tasks.check]
 description = "Run hk linters and formatters."
