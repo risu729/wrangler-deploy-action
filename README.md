@@ -170,12 +170,12 @@ Preview, as in Cloudflare's documented `cf previews deploy` flow:
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 ```
 
-The action calls `cf previews deploy <preview-name> --mode <build-mode> --worker
-<worker>`, which builds with Preview context so a function-form
-`cloudflare.config.ts` sees `isPreview: true`. Build logs go to stderr; the JSON
-result on stdout is verified. The build writes to the same `.cloudflare/output/v0`
-folder, and production modes reject Preview output, so archive production
-artifacts first.
+The action calls `cf previews deploy --preview-name <preview-name> --mode
+<build-mode> --worker <worker>`; cf beta.32 and later require the flag. It builds
+with Preview context so a function-form `cloudflare.config.ts` sees
+`isPreview: true`. Build logs go to stderr; the JSON result on stdout is
+verified. The build writes to the same `.cloudflare/output/v0` folder, and
+production modes reject Preview output, so archive production artifacts first.
 
 Unlike production, Previews are not deployed from prebuilt output. cf documents
 no standalone Preview build: `cf build` has no Preview flag, and Preview context

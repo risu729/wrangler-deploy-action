@@ -371,7 +371,7 @@ run_action() {
 	rm "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
 	run run_action worker-preview account token
 	[ "${status}" -eq 0 ]
-	assert_file_contains "${FAKE_CF_LOG}" 'previews deploy pr-42 --mode production --worker worker'
+	assert_file_contains "${FAKE_CF_LOG}" 'previews deploy --preview-name pr-42 --mode production --worker worker'
 	assert_file_not_contains "${FAKE_CF_LOG}" '--prebuilt'
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions'
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments'
