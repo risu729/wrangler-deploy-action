@@ -11,7 +11,7 @@ Preview itself. It resolves a declared package-local `cf` (including hoisted
 packages and Yarn Plug'n'Play), then a configured mise tool. Undeclared
 transitive binaries are ignored.
 
-CI tests every change against the cf version pinned in
+CI builds and dry-runs a fixture Worker with the cf version pinned in
 [`tests/fixtures/worker/package.json`](tests/fixtures/worker/package.json).
 cf is beta: pin its version and verify upgrades.
 Version uploads and full deployments still use `WRANGLER_OUTPUT_FILE_PATH` internally for structured
