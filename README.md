@@ -11,7 +11,9 @@ Preview itself. It resolves a declared package-local `cf` (including hoisted
 packages and Yarn Plug'n'Play), then a configured mise tool. Undeclared
 transitive binaries are ignored.
 
-Tested with `cf@1.0.0-beta.12`. cf is beta: pin its version and verify upgrades.
+CI tests every change against the cf version pinned in
+[`tests/fixtures/worker/package.json`](tests/fixtures/worker/package.json).
+cf is beta: pin its version and verify upgrades.
 Version uploads and full deployments still use `WRANGLER_OUTPUT_FILE_PATH` internally for structured
 metadata. Workers Previews use the documented JSON stdout response instead.
 Human-readable terminal output is never parsed.
