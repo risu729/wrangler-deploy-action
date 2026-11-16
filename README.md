@@ -171,8 +171,8 @@ Preview, as in Cloudflare's documented `cf previews deploy` flow:
 ```
 
 The action calls `cf previews deploy --preview-name <preview-name> --mode
-<build-mode> --worker <worker>`, which needs cf beta.32 or later. It builds with
-Preview context so a function-form `cloudflare.config.ts` sees
+<build-mode> --worker <worker>`; cf beta.32 and later require the flag. It builds
+with Preview context so a function-form `cloudflare.config.ts` sees
 `isPreview: true`. Build logs go to stderr; the JSON result on stdout is
 verified. The build writes to the same `.cloudflare/output/v0` folder, and
 production modes reject Preview output, so archive production artifacts first.
