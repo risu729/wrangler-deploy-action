@@ -105,7 +105,7 @@ use the placeholder `V3_COMMIT_SHA` instead of a real pin.
 - Branches of merged PRs are deleted automatically. Delete branches of closed or
   abandoned PRs and other stale branches you created; leave `renovate/*`
   branches to Renovate.
-- Do not merge a PR in a repository outside the six listed in
+- Do not merge a PR in a repository other than this one and the five listed in
   [Related Repositories](#related-repositories) unless the owner says to.
 - Merging to `main` can publish a release (see [Releases](#releases)).
 
@@ -153,10 +153,10 @@ Bats and semantic-release. When their behavior matters and is unclear, read
 their source code at the version in use (`mise.toml`, `mise.lock`, and
 [`tests/fixtures/worker/package.json`](tests/fixtures/worker/package.json) for
 `cf`) instead of guessing or relying on documentation alone. For the Cloudflare
-API, read the endpoint's schema in Cloudflare's OpenAPI specification. Cite the
-file and line you relied on, as a permalink at the tag or commit of that version
-(or the npm package version when there is no tag), in the PR or document that
-depends on it.
+API, read the endpoint's schema in Cloudflare's OpenAPI specification and link
+it at a commit of the schema repository. Cite the file and line you relied on,
+as a permalink at the tag or commit of that version (or the npm package version
+when there is no tag), in the PR or document that depends on it.
 
 ## Related Repositories
 
@@ -199,7 +199,7 @@ six repositories unless the owner says to (see
 
 ## Renovate Pull Requests
 
-Check open Renovate PRs in all six repositories listed above every day.
+Check open Renovate PRs in this repository and the five listed above every day.
 
 Merge a Renovate PR by hand only when it is a major update, or a grouped PR
 containing one, that meets all of these conditions:
@@ -229,9 +229,9 @@ tag when it differs from `main`) waits one day after a timestamped release
 automerges minor, patch, pin, digest and lock file maintenance updates, and
 every update of mise itself, including majors, since mise uses CalVer. Renovate
 enables GitHub auto-merge on them, so GitHub merges each one once the required
-checks pass (Renovate's default `platformAutomerge: true`, from renovate-config
-3.23.4). A Renovate PR that stays open usually has a failing check or is a major
-update.
+checks pass (renovate-config 3.23.4 and later keep Renovate's default
+`platformAutomerge: true`). A Renovate PR that stays open usually has a failing
+check or is a major update.
 
 When a Renovate PR fails, find the root cause instead of retrying. The same
 update often lands in several of the repositories at once, for example a shared
