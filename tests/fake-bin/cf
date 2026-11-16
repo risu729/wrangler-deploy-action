@@ -25,7 +25,11 @@ if [[ "$1 $2" == 'previews deploy' ]]; then
 	printf '%s\n' 'Build complete' >&2
 	[[ ${FAKE_CF_FAILURE:-} == upload ]] && exit 1
 	[[ ${FAKE_CF_OUTPUT:-} == missing ]] && exit 0
-	name="$3"
+	name=''
+	for ((index = 3; index < $#; index++)); do
+		[[ ${!index} == --preview-name ]] && next=$((index + 1)) && name="${!next}"
+	done
+	[[ -n ${name} ]] || exit 1
 	[[ ${FAKE_CF_OUTPUT:-} == wrong-name ]] && name=other
 	url=https://pr-42-worker.example.workers.dev
 	[[ ${FAKE_CF_OUTPUT:-} == bad-url ]] && url='https://evil.example/'

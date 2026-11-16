@@ -42,7 +42,8 @@ if [[ ${mode} == worker-preview ]]; then
 	export CLOUDFLARE_ACCOUNT_ID="${account_id}" CLOUDFLARE_API_TOKEN="${api_token}" CI=true
 	preview_output="${output_directory}/upload.json"
 	# cf builds with Preview context, as documented; build logs go to stderr.
-	run_cf previews deploy "${preview_name}" --mode "${build_mode}" --worker "${worker}" >"${preview_output}"
+	# Since cf beta.32 the positional argument is a static assets directory.
+	run_cf previews deploy --preview-name "${preview_name}" --mode "${build_mode}" --worker "${worker}" >"${preview_output}"
 	[[ -f ${preview_output} ]] || fail 'cf did not write structured Preview output.'
 	if ! upload="$(jq -sce --arg name "${preview_name}" --arg id "${id_pattern}" --arg url "${url_pattern}" '
 		map(select(.type == "preview"))
