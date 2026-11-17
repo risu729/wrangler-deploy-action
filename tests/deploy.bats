@@ -650,10 +650,117 @@ run_action() {
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
 }
 
-@test "historical resource proof cannot pass after another deployment owns current traffic" {
-	for scenario in wrong-id wrong-version wrong-percentage empty malformed collection-multiple-json forbidden missing network late timeout; do
+@test "a current list that lags the exact resource is read again within the budget" {
+	export FAKE_CURRENT_DEPLOYMENT=lagging INPUT_DEPLOY_TRIGGERS=true
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 1 ]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 3 ]
+	[ "$(cat "${FAKE_CLOCK}")" -eq 2000 ]
+	[[ ${output} == *'Current deployment list matched after 3 read(s).'* ]]
+	[ "$(grep -c 'workers deployments create ' "${FAKE_CF_LOG}")" -eq 1 ]
+	[ "$(grep -c 'workers versions create ' "${FAKE_CF_LOG}")" -eq 1 ]
+	assert_file_contains "${FAKE_CF_LOG}" 'workers triggers deploy'
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
+}
+
+@test "a current list that never shows the new deployment fails with what it listed" {
+	for scenario in previous wrong-id empty bad-created-on; do
 		export FAKE_CURRENT_DEPLOYMENT="${scenario}" INPUT_DEPLOY_TRIGGERS=true
-		rm -f "${FAKE_DEPLOYMENT_STATE}"
+		rm -f "${FAKE_DEPLOYMENT_STATE}" "${FAKE_DEPLOYMENT_STATE}.current"
+		printf '0' >"${FAKE_CLOCK}"
+		: >"${GITHUB_OUTPUT}"
+		: >"${GITHUB_STEP_SUMMARY}"
+		: >"${FAKE_CF_LOG}"
+		run run_action production account sensitive-example-token
+		[ "${status}" -ne 0 ]
+		[[ ${output} == *deployment_readback_current_mismatch* ]]
+		[[ ${output} != *deployment_readback_pending* ]]
+		[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 1 ]
+		[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 30 ]
+		[ "$(cat "${FAKE_CLOCK}")" -eq 30000 ]
+		[[ ${output} == *'Current deployment list after 30 read(s): expected 22222222-2222-4222-8222-222222222222 serving 11111111-1111-4111-8111-111111111111 at 100%, first listed '* ]]
+		[ "$(grep -c 'workers deployments create ' "${FAKE_CF_LOG}")" -eq 1 ]
+		[ "$(grep -c 'workers versions create ' "${FAKE_CF_LOG}")" -eq 1 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+		[ ! -s "${GITHUB_STEP_SUMMARY}" ]
+		assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
+		[[ ${output} != *sensitive-example-token* && ${output} != *sensitive-provider-message* && ${output} != *sensitive-author* ]]
+		[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+	done
+	export FAKE_CURRENT_DEPLOYMENT=previous
+	rm -f "${FAKE_DEPLOYMENT_STATE}" "${FAKE_DEPLOYMENT_STATE}.current"
+	printf '0' >"${FAKE_CLOCK}"
+	run run_action production account token
+	[[ ${output} == *'first listed 33333333-3333-4333-8333-333333333333 created_on=2026-11-14T06:40:00Z versions=44444444-4444-4444-8444-444444444444@100%.'* ]]
+	export FAKE_CURRENT_DEPLOYMENT=empty
+	rm -f "${FAKE_DEPLOYMENT_STATE}" "${FAKE_DEPLOYMENT_STATE}.current"
+	printf '0' >"${FAKE_CLOCK}"
+	run run_action production account token
+	[[ ${output} == *'first listed none.'* ]]
+	export FAKE_CURRENT_DEPLOYMENT=bad-created-on
+	rm -f "${FAKE_DEPLOYMENT_STATE}" "${FAKE_DEPLOYMENT_STATE}.current"
+	printf '0' >"${FAKE_CLOCK}"
+	run run_action production account token
+	[[ ${output} == *'first listed 33333333-3333-4333-8333-333333333333 created_on=unknown versions='* ]]
+}
+
+@test "a mismatch followed by a late response prints the last checked list" {
+	export FAKE_CURRENT_DEPLOYMENT=previous-then-late INPUT_DEPLOY_TRIGGERS=true
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *deployment_readback_current_mismatch* ]]
+	[[ ${output} != *deployment_readback_pending* ]]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 2 ]
+	[[ ${output} == *'Current deployment list after 1 read(s): '*'first listed 33333333-3333-4333-8333-333333333333 '* ]]
+	[[ ${output} != *sensitive-provider-message* ]]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+	export FAKE_CURRENT_DEPLOYMENT=previous-then-timeout
+	rm -f "${FAKE_DEPLOYMENT_STATE}" "${FAKE_DEPLOYMENT_STATE}.current"
+	printf '0' >"${FAKE_CLOCK}"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *deployment_readback_current_mismatch* ]]
+	[[ ${output} == *'first listed 33333333-3333-4333-8333-333333333333 '* ]]
+	[[ ${output} != *sensitive-provider-message* ]]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "a list request or HTTP failure after a mismatch still fails as a request failure" {
+	export FAKE_CURRENT_DEPLOYMENT=previous-then-forbidden INPUT_DEPLOY_TRIGGERS=true
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *deployment_readback_current_failed* ]]
+	[[ ${output} != *deployment_readback_current_mismatch* ]]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 2 ]
+	[ "$(cat "${FAKE_CLOCK}")" -eq 1000 ]
+	[[ ${output} != *sensitive-provider-message* ]]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "the new deployment listed with other versions fails without waiting" {
+	for scenario in wrong-version wrong-percentage; do
+		export FAKE_CURRENT_DEPLOYMENT="${scenario}" INPUT_DEPLOY_TRIGGERS=true
+		rm -f "${FAKE_DEPLOYMENT_STATE}" "${FAKE_DEPLOYMENT_STATE}.current"
+		printf '0' >"${FAKE_CLOCK}"
+		: >"${GITHUB_OUTPUT}"
+		: >"${FAKE_CF_LOG}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[[ ${output} == *deployment_readback_current_mismatch* ]]
+		[[ ${output} == *'Current deployment list after 1 read(s): '* ]]
+		[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 1 ]
+		[ "$(cat "${FAKE_CLOCK}")" -eq 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+		assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
+	done
+}
+
+@test "current list request and schema failures stop without waiting" {
+	for scenario in bad-id bad-versions bad-version-id malformed collection-multiple-json forbidden missing network late timeout; do
+		export FAKE_CURRENT_DEPLOYMENT="${scenario}" INPUT_DEPLOY_TRIGGERS=true
+		rm -f "${FAKE_DEPLOYMENT_STATE}" "${FAKE_DEPLOYMENT_STATE}.current"
 		printf '0' >"${FAKE_CLOCK}"
 		: >"${GITHUB_OUTPUT}"
 		: >"${GITHUB_STEP_SUMMARY}"
@@ -661,6 +768,7 @@ run_action() {
 		: >"${FAKE_CURL_LOG}"
 		run run_action production account sensitive-example-token
 		[ "${status}" -ne 0 ]
+		[[ ${output} != *deployment_readback_current_mismatch* ]]
 		[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 1 ]
 		[ "$(wc -l <"${FAKE_CURL_LOG}")" -eq 2 ]
 		[ "$(grep -c 'workers deployments create ' "${FAKE_CF_LOG}")" -eq 1 ]
@@ -668,7 +776,7 @@ run_action() {
 		[ ! -s "${GITHUB_OUTPUT}" ]
 		[ ! -s "${GITHUB_STEP_SUMMARY}" ]
 		assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers'
-		[[ ${output} != *sensitive-example-token* ]]
+		[[ ${output} != *sensitive-example-token* && ${output} != *sensitive-provider-message* ]]
 		[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
 	done
 }

@@ -42,8 +42,15 @@ HTTP 404 response whose error codes are all 10336 is retried within one absolute
 transport, malformed-response or identity failures stop immediately. Success
 requires the same UUID, percentage strategy, and exactly the uploaded version
 at 100%; then a fresh deployment collection must identify that same ID/version
-as currently serving 100%. A different current deployment is refused rather
-than adopted. Both reads share the original deadline; late responses fail.
+as currently serving 100%. The collection can lag the exact resource, so while
+it lists another or no deployment first it is read again, at most once a second,
+within the same budget. A different current deployment that is still listed when
+the budget runs out is refused rather than adopted, and the failure prints the
+first deployment ID, `created_on` time and version IDs from the last checked
+read. The created
+deployment listed with other versions, HTTP errors and malformed collections
+fail immediately. When the collection needed more than one read, the action
+prints how many. Both reads share the original deadline; late responses fail.
 Upload/create are never repeated by the action, and optional
 triggers and success outputs wait for this proof. No latest-deployment fallback
 or automatic rollback is added. This read uses existing Worker script read/write
