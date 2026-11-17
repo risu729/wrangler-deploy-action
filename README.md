@@ -44,9 +44,10 @@ requires the same UUID, percentage strategy, and exactly the uploaded version
 at 100%; then a fresh deployment collection must identify that same ID/version
 as currently serving 100%. The collection can lag the exact resource, so while
 it lists another or no deployment first it is read again, at most once a second,
-within the same budget. A different current deployment that is still listed at
-the deadline is refused rather than adopted, and the failure prints the first
-listed deployment ID, its `created_on` time and its version IDs. The created
+within the same budget. A different current deployment that is still listed when
+the budget runs out is refused rather than adopted, and the failure prints the
+first deployment ID, `created_on` time and version IDs from the last checked
+read. The created
 deployment listed with other versions, HTTP errors and malformed collections
 fail immediately. When the collection needed more than one read, the action
 prints how many. Both reads share the original deadline; late responses fail.

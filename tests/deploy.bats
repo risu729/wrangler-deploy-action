@@ -657,7 +657,7 @@ run_action() {
 	[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 1 ]
 	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 3 ]
 	[ "$(cat "${FAKE_CLOCK}")" -eq 2000 ]
-	[[ ${output} == *'Current deployment list matched after 3 reads.'* ]]
+	[[ ${output} == *'Current deployment list matched after 3 read(s).'* ]]
 	[ "$(grep -c 'workers deployments create ' "${FAKE_CF_LOG}")" -eq 1 ]
 	[ "$(grep -c 'workers versions create ' "${FAKE_CF_LOG}")" -eq 1 ]
 	assert_file_contains "${FAKE_CF_LOG}" 'workers triggers deploy'
@@ -679,7 +679,7 @@ run_action() {
 		[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 1 ]
 		[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 30 ]
 		[ "$(cat "${FAKE_CLOCK}")" -eq 30000 ]
-		[[ ${output} == *'Current deployment list after 30 reads: expected 22222222-2222-4222-8222-222222222222 serving 11111111-1111-4111-8111-111111111111 at 100%, first listed '* ]]
+		[[ ${output} == *'Current deployment list after 30 read(s): expected 22222222-2222-4222-8222-222222222222 serving 11111111-1111-4111-8111-111111111111 at 100%, first listed '* ]]
 		[ "$(grep -c 'workers deployments create ' "${FAKE_CF_LOG}")" -eq 1 ]
 		[ "$(grep -c 'workers versions create ' "${FAKE_CF_LOG}")" -eq 1 ]
 		[ ! -s "${GITHUB_OUTPUT}" ]
@@ -712,10 +712,31 @@ run_action() {
 	[[ ${output} == *deployment_readback_current_mismatch* ]]
 	[[ ${output} != *deployment_readback_pending* ]]
 	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 2 ]
-	[[ ${output} == *'Current deployment list after 2 reads: '*'first listed 33333333-3333-4333-8333-333333333333 '* ]]
+	[[ ${output} == *'Current deployment list after 1 read(s): '*'first listed 33333333-3333-4333-8333-333333333333 '* ]]
 	[[ ${output} != *sensitive-provider-message* ]]
 	[ ! -s "${GITHUB_OUTPUT}" ]
 	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+	export FAKE_CURRENT_DEPLOYMENT=previous-then-timeout
+	rm -f "${FAKE_DEPLOYMENT_STATE}" "${FAKE_DEPLOYMENT_STATE}.current"
+	printf '0' >"${FAKE_CLOCK}"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *deployment_readback_current_mismatch* ]]
+	[[ ${output} == *'first listed 33333333-3333-4333-8333-333333333333 '* ]]
+	[[ ${output} != *sensitive-provider-message* ]]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "a list request or HTTP failure after a mismatch still fails as a request failure" {
+	export FAKE_CURRENT_DEPLOYMENT=previous-then-forbidden INPUT_DEPLOY_TRIGGERS=true
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *deployment_readback_current_failed* ]]
+	[[ ${output} != *deployment_readback_current_mismatch* ]]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 2 ]
+	[ "$(cat "${FAKE_CLOCK}")" -eq 1000 ]
+	[[ ${output} != *sensitive-provider-message* ]]
+	[ ! -s "${GITHUB_OUTPUT}" ]
 }
 
 @test "the new deployment listed with other versions fails without waiting" {
@@ -728,7 +749,7 @@ run_action() {
 		run run_action production account token
 		[ "${status}" -ne 0 ]
 		[[ ${output} == *deployment_readback_current_mismatch* ]]
-		[[ ${output} == *'Current deployment list after 1 reads: '* ]]
+		[[ ${output} == *'Current deployment list after 1 read(s): '* ]]
 		[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 1 ]
 		[ "$(cat "${FAKE_CLOCK}")" -eq 0 ]
 		[ ! -s "${GITHUB_OUTPUT}" ]

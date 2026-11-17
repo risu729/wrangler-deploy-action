@@ -25,7 +25,7 @@ fail_current_mismatch() {
 		"versions=\([.versions[] | "\(.version_id)@\(.percentage)%"] | join(","))"
 		end
 	' "${output_directory}/current-mismatch.json" 2>/dev/null)" || listed=unreadable
-	printf 'Current deployment list after %d reads: expected %s serving %s at 100%%, first listed %s.\n' \
+	printf 'Current deployment list after %d read(s): expected %s serving %s at 100%%, first listed %s.\n' \
 		"${current_reads}" "${deployment_id}" "${version_id}" "${listed}" >&2
 	fail 'deployment_readback_current_mismatch'
 }
@@ -72,9 +72,9 @@ current_deployment_matches() {
 	local endpoint="$1" headers="$2"
 	local collection="${output_directory}/current-deployments.json"
 	# Never evaluate a previous attempt's body if this one writes none.
-	rm -f -- "${collection}"
-	current_reads=$((current_reads + 1))
+	rm -f -- "${collection}" || fail 'deployment_readback_current_failed'
 	deployment_readback_request "${endpoint}" "${collection}" "${headers}" "${deployment_readback_deadline}"
+	current_reads=$((current_reads + 1))
 	[[ ${deployment_readback_status} == 200 ]] || fail 'deployment_readback_current_failed'
 	if ! jq --slurp -e --arg uuid "${uuid_pattern}" '
 		length == 1 and (.[0] | .success == true and (.errors | type == "array" and length == 0) and
@@ -93,7 +93,7 @@ current_deployment_matches() {
 	' "${collection}" >/dev/null 2>&1; then
 		return 0
 	fi
-	cp -- "${collection}" "${output_directory}/current-mismatch.json"
+	cp -- "${collection}" "${output_directory}/current-mismatch.json" || fail 'deployment_readback_current_failed'
 	if jq --slurp -e --arg id "${deployment_id}" '
 		.[0].result.deployments | length > 0 and .[0].id == $id
 	' "${collection}" >/dev/null 2>&1; then
@@ -144,7 +144,7 @@ verify_created_deployment() {
 		done
 		# Record how often the list lagged so callers' logs show whether the retry matters.
 		((current_reads == 1)) ||
-			printf 'Current deployment list matched after %d reads.\n' "${current_reads}"
+			printf 'Current deployment list matched after %d read(s).\n' "${current_reads}"
 		(($(deployment_now_ms) < deadline)) || fail 'deployment_readback_pending'
 		jq --slurp '.[0].result' "${response}" >"${output_directory}/verified.json" 2>/dev/null || fail 'deployment_readback_response_failed'
 		(($(deployment_now_ms) < deadline)) || fail 'deployment_readback_pending'

@@ -90,6 +90,16 @@ if [[ ${url} == 'https://api.cloudflare.com/client/v4/accounts/account/workers/s
 	case "${FAKE_CURRENT_DEPLOYMENT:-}" in
 	lagging) ((count >= 3)) || body="$(jq "${previous}" <<<"${body}")" ;;
 	previous) body="$(jq "${previous}" <<<"${body}")" ;;
+	previous-then-timeout | previous-then-forbidden)
+		if ((count == 1)); then body="$(jq "${previous}" <<<"${body}")"; elif [[ ${FAKE_CURRENT_DEPLOYMENT} == previous-then-forbidden ]]; then
+			status=403
+			body='{"success":false,"errors":[{"code":10000,"message":"sensitive-provider-message"}]}'
+		else
+			printf 'sensitive-provider-message' >"${destination}"
+			printf '30000' >"${FAKE_CLOCK}"
+			exit 28
+		fi
+		;;
 	previous-then-late)
 		if ((count == 1)); then body="$(jq "${previous}" <<<"${body}")"; else
 			body="$(jq '.result.deployments[0].id="sensitive-provider-message"' <<<"${body}")"
