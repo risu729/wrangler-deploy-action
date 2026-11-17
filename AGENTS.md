@@ -33,6 +33,22 @@ and runs `integration:build`, `integration:dry-run` and `integration:verify` fro
 [`tests/fixtures/worker`](tests/fixtures/worker), which pins the tested `cf`
 version in its `package.json`.
 
+### Dependencies
+
+The only package dependencies are the fixture's in
+[`tests/fixtures/worker`](tests/fixtures/worker). Only the mise deps provider
+`[deps.bun]` in [`mise.toml`](mise.toml) installs them, through the
+`integration:deps` task that `integration:build` depends on; the provider skips
+the install while `package.json`, `bun.lock` and `node_modules` are unchanged.
+Do not add a `bun install` to a task, a script or a CI step.
+
+The provider is not `auto = true`, unlike the providers in the other five
+repositories: `mise run` and `mise exec` would then install the fixture's
+packages before `check`, `test` and `release`, which do not use them.
+`integration:deps` sets `MISE_ENABLE_TOOLS=node,bun` because `mise deps install`
+installs every configured tool first. `experimental = true` stays while
+`[deps]` is used, because mise still requires it for `[deps]`.
+
 ## Action Design
 
 - Keep the action focused on prebuilt `cf` deployment. Callers own workflow
