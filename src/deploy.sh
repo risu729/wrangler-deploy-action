@@ -59,7 +59,7 @@ if [[ -n ${secrets_json} && ${mode} != production ]]; then
 fi
 command -v jq >/dev/null 2>&1 || fail 'jq is required; use a GitHub-hosted Linux runner or install it first.'
 deployment_readback_available=false
-if [[ ${mode} == production && ${production_strategy} == versions ]]; then
+if [[ ${mode} == production ]]; then
 	[[ ${account_id} =~ ^[a-zA-Z0-9_-]+$ && ${worker} =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'Invalid account ID or Worker name.'
 	[[ ${api_token} != *$'\n'* && ${api_token} != *$'\r'* ]] || fail 'Invalid API token.'
 	if command -v curl >/dev/null 2>&1 && [[ $(date +%s%3N 2>/dev/null) =~ ^[0-9]+$ ]]; then
@@ -67,6 +67,10 @@ if [[ ${mode} == production && ${production_strategy} == versions ]]; then
 		# Load trusted readback code before any version upload or activation.
 		# shellcheck source=src/deployment-readback.sh
 		source "${script_directory}/deployment-readback.sh" 2>/dev/null || fail 'deployment_readback_helper_unavailable'
+	fi
+	# cf deploy reports no deployment UUID; only the API readback can identify it.
+	if [[ ${production_strategy} == deploy && ${deployment_readback_available} != true ]]; then
+		fail 'production-strategy deploy requires curl and GNU date for API readback.'
 	fi
 fi
 
@@ -164,17 +168,7 @@ fi
 
 if [[ ${effective_mode} == production ]]; then
 	if [[ ${production_strategy} == deploy ]]; then
-		# cf deploy reports the version, not the deployment UUID. The first entry
-		# is the deployment actively serving traffic, according to the API.
-		run_cf workers deployments list --worker "${worker}" >"${output_directory}/deployment.json"
-		if ! deployment_id="$(jq --raw-output --exit-status --arg uuid "${uuid_pattern}" --arg version "${version_id}" '
-			.deployments | select(type == "array" and length > 0) | .[0]
-			| select(.strategy == "percentage")
-			| select(.versions | type == "array" and length == 1 and .[0].version_id == $version and .[0].percentage == 100)
-			| .id | select(type == "string" and test($uuid))
-		' "${output_directory}/deployment.json")"; then
-			fail 'The active deployment did not match the version returned by cf deploy at 100%.'
-		fi
+		find_active_deployment
 		triggers_deployed=true
 	else
 		versions="$(jq --null-input --compact-output --arg id "${version_id}" '[{version_id: $id, percentage: 100}]')"
@@ -186,7 +180,7 @@ if [[ ${effective_mode} == production ]]; then
 		fi
 	fi
 	# Never repeat an upload or activation when the exact new deployment is not yet visible.
-	if [[ ${production_strategy} == versions && ${deployment_readback_available} == true ]]; then
+	if [[ ${deployment_readback_available} == true ]]; then
 		verify_created_deployment
 	else
 		run_cf workers deployments get "${deployment_id}" --worker "${worker}" >"${output_directory}/verified.json"
@@ -197,7 +191,7 @@ if [[ ${effective_mode} == production ]]; then
 	' "${output_directory}/verified.json" >/dev/null; then
 		fail 'Deployment readback did not match the uploaded version at 100%.'
 	fi
-	if [[ ${production_strategy} == versions && ${deployment_readback_available} == true ]]; then
+	if [[ ${deployment_readback_available} == true ]]; then
 		# The common schema check must not let verification outlive its original budget.
 		(($(deployment_now_ms) < deployment_readback_deadline)) || fail 'deployment_readback_pending'
 	fi
