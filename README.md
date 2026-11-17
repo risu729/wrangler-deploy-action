@@ -32,8 +32,9 @@ The default `production-strategy: versions` and legacy version uploads use `cf w
 --worker <worker>`. Production uses `cf workers deployments create` followed by
 an exact-ID Cloudflare API readback. The opt-in `production-strategy: deploy` uses
 `cf deploy --prebuilt --mode <build-mode> --worker <worker>`, then identifies
-the active deployment through the Cloudflare API and verifies that exact
-returned version at 100%.
+the active deployment through the Cloudflare API, verifies that exact
+returned version at 100%, and verifies that the Worker's observability settings
+match the Build Output.
 
 The versions strategy reads only the deployment UUID returned by the pinned
 CLI's create call, with the same explicit account, Worker and token. A typed
@@ -80,6 +81,41 @@ percentage cannot be told apart from an older deployment, so it is also read
 again until the deadline instead of failing at once. It takes that entry's UUID, prints how many reads it needed when
 more than one, and then applies the exact-ID and collection proof above within
 the remaining budget.
+
+`cf deploy` writes the non-versioned script settings (`observability`,
+`logpush`, `tail_consumers` and tags) for an existing Worker in a separate
+settings request after it activates the version, unless the Worker needs a full
+script upload (for example, a new Worker or one with Containers).
+It catches any failure of that settings request and prints only a fixed warning
+about tags, so the command still succeeds
+([cf 1.0.0-beta.32, `dist/static-assets-CWo7dxyW.mjs` line 343](https://unpkg.com/cf@1.0.0-beta.32/dist/static-assets-CWo7dxyW.mjs)).
+cf has no option that turns this warning into a failure. The action verifies
+`observability` only; `logpush`, `tail_consumers` and tags are not read back.
+
+Before publication, the action reads the selected Worker's `observability`
+declaration from `worker.config.json` and converts its keys to the API's snake
+case, as cf does
+([`@cloudflare/config` 0.32.1, `dist/index.mjs` lines 983-1007](https://unpkg.com/@cloudflare/config@0.32.1/dist/index.mjs)).
+An ambiguous or invalid declaration, or a missing Build Output, fails before
+publication. Without a declaration, the action does not read the settings back:
+cf then sends `observability` disabled in the settings request but omits it from
+a full script upload, so the stored setting is not fully determined by the Build
+Output, and the step summary says so.
+
+With a declaration, after the deployment proof, the action reads the
+[script settings](https://github.com/cloudflare/api-schemas/blob/abdca47e25cfcee72c4beda2d61df2d9bc65f5a3/openapi.yaml#L243053)
+([documentation](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/get/))
+with the same credential. Every declared value must be present unchanged.
+Undeclared fields are ignored. A declared field the response omits is a
+mismatch, since the action does not fill in API defaults. Declared arrays must
+match whole, a value of another shape is a mismatch, and an absent
+`observability` object in the response means disabled. A mismatch is read again
+at most once a second within its own 30-second budget, then fails with
+`script_settings_readback_mismatch` and prints only the differing setting paths,
+also when a later read runs out of budget. A non-200 response prints only the
+HTTP status and numeric Cloudflare error codes; other failures print only a
+closed code. The action never writes settings itself, and the read uses the
+existing Worker-script permission.
 
 Legacy `preview-or-dry-run` uses version URLs on an existing Worker.
 Use `worker-preview` for branch and PR environments. Neither changes production

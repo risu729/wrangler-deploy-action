@@ -72,6 +72,11 @@ if [[ ${mode} == production ]]; then
 	if [[ ${production_strategy} == deploy && ${deployment_readback_available} != true ]]; then
 		fail 'production-strategy deploy requires curl and GNU date for API readback.'
 	fi
+	if [[ ${production_strategy} == deploy ]]; then
+		# cf deploy reports a failed script settings write only as a warning.
+		# shellcheck source=src/settings-readback.sh
+		source "${script_directory}/settings-readback.sh" 2>/dev/null || fail 'script_settings_helper_unavailable'
+	fi
 fi
 
 resolved_working_directory="$(resolve_working_directory "${INPUT_WORKING_DIRECTORY:-.}" "${workspace}")"
@@ -120,6 +125,10 @@ if [[ -n ${secrets_json} ]]; then
 	arguments+=(--secrets-file "${secrets_file}")
 fi
 
+if [[ ${effective_mode} == production && ${production_strategy} == deploy ]]; then
+	# A local Build Output check, before any network call or publication.
+	prepare_script_settings_expectation
+fi
 if [[ ${effective_mode} == production && ${deploy_triggers} == true ]]; then
 	# Read the same prebuilt declaration and credential before any publication.
 	# shellcheck source=src/domain-guard.sh
@@ -195,6 +204,9 @@ if [[ ${effective_mode} == production ]]; then
 		# The common schema check must not let verification outlive its original budget.
 		(($(deployment_now_ms) < deployment_readback_deadline)) || fail 'deployment_readback_pending'
 	fi
+	if [[ ${production_strategy} == deploy ]]; then
+		verify_script_settings
+	fi
 	if [[ ${deploy_triggers} == true && ${production_strategy} == versions ]]; then
 		verify_domain_changeset before
 		run_cf workers triggers deploy --prebuilt --mode "${build_mode}" --worker "${worker}"
@@ -233,6 +245,11 @@ if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
 				# shellcheck disable=SC2016
 				printf 'Deployment: `%s` (verified at 100%%).\n\nTriggers synchronized: `%s`.\n' "${deployment_id}" "${triggers_deployed}"
 				if [[ ${production_strategy} == deploy ]]; then
+					if [[ ${script_settings_declared} == true ]]; then
+						printf '\nObservability settings matched the Build Output.\n'
+					else
+						printf '\nObservability is not declared in the Build Output, so its settings were not read back.\n'
+					fi
 					printf '\ncf applied configured Container applications. Container rollout completion requires caller verification.\n'
 				fi
 			fi
