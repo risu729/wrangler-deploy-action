@@ -75,7 +75,9 @@ strategy therefore reads the current deployment collection until its first entry
 serves that exact version at 100%, under the same rules and the same 30-second
 budget as above: another or no deployment listed first is read again at most
 once a second, and malformed collections, HTTP errors and late responses fail
-immediately. It takes that entry's UUID, prints how many reads it needed when
+immediately. Before the UUID is known, a first entry serving another version or
+percentage cannot be told apart from an older deployment, so it is also read
+again until the deadline instead of failing at once. It takes that entry's UUID, prints how many reads it needed when
 more than one, and then applies the exact-ID and collection proof above within
 the remaining budget.
 

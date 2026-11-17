@@ -493,6 +493,24 @@ run_action() {
 	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
 }
 
+@test "full deployment proves the exact ID within the budget left after the list" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
+	export FAKE_CURRENT_DEPLOYMENT=lagging FAKE_DEPLOYMENT_API=missing
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *deployment_readback_pending* ]]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 28 ]
+	[ "$(cat "${FAKE_CLOCK}")" -eq 30000 ]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "an inherited readback deadline does not skip readback setup" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true deployment_readback_deadline=1
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
+}
+
 @test "full deployment requires API readback tools before publication" {
 	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true FAKE_DATE_UNSUPPORTED=true
 	run run_action production account token
@@ -579,7 +597,12 @@ run_action() {
 		printf '0' >"${FAKE_CLOCK}"
 		run run_action production account token
 		[ "${status}" -ne 0 ]
+		case "${scenario}" in
+		network) [[ ${output} == *deployment_readback_request_failed* ]] ;;
+		*) [[ ${output} == *deployment_readback_current_failed* ]] ;;
+		esac
 		[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 1 ]
+		[ ! -e "${FAKE_DEPLOYMENT_STATE}" ]
 		[ "$(cat "${FAKE_CLOCK}")" -eq 0 ]
 		[ ! -s "${GITHUB_OUTPUT}" ]
 	done
@@ -846,6 +869,23 @@ run_action() {
 	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments get 22222222-2222-4222-8222-222222222222 --worker worker'
 	[ ! -e "${FAKE_CURL_LOG}" ]
 	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
+}
+
+@test "full deployment without curl fails before publication" {
+	local minimal_path="${BATS_TEST_TMPDIR}/without-curl"
+	mkdir -p "${minimal_path}"
+	for name in env bash dirname jq date cat mktemp rm; do
+		ln -s "$(command -v "${name}")" "${minimal_path}/${name}"
+	done
+	ln -s "${repo_root}/tests/fake-bin/mise" "${minimal_path}/mise"
+	ln -s "${repo_root}/tests/fake-bin/cf" "${minimal_path}/cf"
+	run env PATH="${minimal_path}" INPUT_MODE=production INPUT_WORKING_DIRECTORY=worker \
+		INPUT_WORKER=worker INPUT_CLOUDFLARE_ACCOUNT_ID=account INPUT_CLOUDFLARE_API_TOKEN=token \
+		INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true "${repo_root}/src/deploy.sh"
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'production-strategy deploy requires curl and GNU date'* ]]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'deploy --prebuilt'
+	[ ! -s "${GITHUB_OUTPUT}" ]
 }
 
 @test "a missing enhanced readback helper fails before publication" {

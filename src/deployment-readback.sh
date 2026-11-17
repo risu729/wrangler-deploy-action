@@ -12,6 +12,8 @@ deployment_now_ms() {
 # that running out of budget afterwards reports the mismatch instead of a pending read.
 current_mismatch_seen=false
 current_reads=0
+# Never inherit a deadline from the caller environment; the first read sets it.
+deployment_readback_deadline=''
 
 # Prints which deployment the last schema-checked list showed first, then fails.
 # A later response is never printed: it may be late, missing or not yet checked.
