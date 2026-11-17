@@ -90,6 +90,12 @@ if [[ ${url} == 'https://api.cloudflare.com/client/v4/accounts/account/workers/s
 	case "${FAKE_CURRENT_DEPLOYMENT:-}" in
 	lagging) ((count >= 3)) || body="$(jq "${previous}" <<<"${body}")" ;;
 	previous) body="$(jq "${previous}" <<<"${body}")" ;;
+	previous-then-late)
+		if ((count == 1)); then body="$(jq "${previous}" <<<"${body}")"; else
+			body="$(jq '.result.deployments[0].id="sensitive-provider-message"' <<<"${body}")"
+			printf '30000' >"${FAKE_CLOCK}"
+		fi
+		;;
 	bad-id) body="$(jq '.result.deployments[0].id="sensitive-provider-message"' <<<"${body}")" ;;
 	bad-versions) body="$(jq '.result.deployments[0].versions=["sensitive-provider-message"]' <<<"${body}")" ;;
 	bad-version-id) body="$(jq '.result.deployments[0].versions[0].version_id="sensitive-provider-message"' <<<"${body}")" ;;

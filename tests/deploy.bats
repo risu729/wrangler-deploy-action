@@ -705,6 +705,19 @@ run_action() {
 	[[ ${output} == *'first listed 33333333-3333-4333-8333-333333333333 created_on=unknown versions='* ]]
 }
 
+@test "a mismatch followed by a late response prints the last checked list" {
+	export FAKE_CURRENT_DEPLOYMENT=previous-then-late INPUT_DEPLOY_TRIGGERS=true
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *deployment_readback_current_mismatch* ]]
+	[[ ${output} != *deployment_readback_pending* ]]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 2 ]
+	[[ ${output} == *'Current deployment list after 2 reads: '*'first listed 33333333-3333-4333-8333-333333333333 '* ]]
+	[[ ${output} != *sensitive-provider-message* ]]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+}
+
 @test "the new deployment listed with other versions fails without waiting" {
 	for scenario in wrong-version wrong-percentage; do
 		export FAKE_CURRENT_DEPLOYMENT="${scenario}" INPUT_DEPLOY_TRIGGERS=true

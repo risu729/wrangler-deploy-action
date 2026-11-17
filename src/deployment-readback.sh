@@ -12,8 +12,9 @@ deployment_now_ms() {
 current_mismatch_seen=false
 current_reads=0
 
-# Prints which deployment the list showed first, from schema-checked identifiers only,
-# then fails. Provider messages and annotations are never printed.
+# Prints which deployment the last schema-checked list showed first, then fails.
+# A later response is never printed: it may be late, missing or not yet checked.
+# Provider messages and annotations are never printed.
 fail_current_mismatch() {
 	local listed
 	listed="$(jq --slurp --raw-output '
@@ -23,7 +24,7 @@ fail_current_mismatch() {
 			if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$") then . else "unknown" end) " +
 		"versions=\([.versions[] | "\(.version_id)@\(.percentage)%"] | join(","))"
 		end
-	' "${output_directory}/current-deployments.json" 2>/dev/null)" || listed=unreadable
+	' "${output_directory}/current-mismatch.json" 2>/dev/null)" || listed=unreadable
 	printf 'Current deployment list after %d reads: expected %s serving %s at 100%%, first listed %s.\n' \
 		"${current_reads}" "${deployment_id}" "${version_id}" "${listed}" >&2
 	fail 'deployment_readback_current_mismatch'
@@ -92,6 +93,7 @@ current_deployment_matches() {
 	' "${collection}" >/dev/null 2>&1; then
 		return 0
 	fi
+	cp -- "${collection}" "${output_directory}/current-mismatch.json"
 	if jq --slurp -e --arg id "${deployment_id}" '
 		.[0].result.deployments | length > 0 and .[0].id == $id
 	' "${collection}" >/dev/null 2>&1; then
