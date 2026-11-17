@@ -78,7 +78,8 @@ squash commit. Tags look like `v3.0.3`; there are no moving major tags. Callers
 pin the full commit SHA with the tag as a comment, for example
 `uses: risu729/wrangler-deploy-action@a371aa836e01c95d3928ba1a62b052229c7184c2 # v3.0.3`,
 and receive a release only when Renovate updates that pin. The README examples
-use the placeholder `V3_COMMIT_SHA` instead of a real pin.
+use the placeholder `V3_COMMIT_SHA` on purpose instead of a real pin, so no
+Renovate custom manager updates them.
 
 ## Change Workflow
 
