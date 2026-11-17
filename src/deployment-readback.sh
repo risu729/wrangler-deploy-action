@@ -39,20 +39,24 @@ readback_expired() {
 }
 
 # Both exact-resource and current-traffic reads consume the same remaining budget.
+# A read with its own budget passes the function that reports its expiry and the
+# code of its request failures.
 deployment_readback_request() {
-	local endpoint="$1" destination="$2" headers="$3" deadline="$4" remaining request_timeout
+	local endpoint="$1" destination="$2" headers="$3" deadline="$4"
+	local on_expired="${5:-readback_expired}" request_failed="${6:-deployment_readback_request_failed}"
+	local remaining request_timeout
 	remaining=$((deadline - $(deployment_now_ms)))
-	((remaining > 0)) || readback_expired
+	((remaining > 0)) || "${on_expired}"
 	printf -v request_timeout '%d.%03d' "$((remaining / 1000))" "$((remaining % 1000))"
 	# Ignore user curl config; never follow redirects or print transport/provider errors.
 	if ! deployment_readback_status="$(curl -q --silent --proto '=https' --max-redirs 0 \
 		--max-time "${request_timeout}" --connect-timeout "${request_timeout}" \
 		--max-filesize 1048576 --request GET --header "@${headers}" \
 		--output "${destination}" --write-out '%{http_code}' "${endpoint}")"; then
-		(($(deployment_now_ms) < deadline)) || readback_expired
-		fail 'deployment_readback_request_failed'
+		(($(deployment_now_ms) < deadline)) || "${on_expired}"
+		fail "${request_failed}"
 	fi
-	(($(deployment_now_ms) < deadline)) || readback_expired
+	(($(deployment_now_ms) < deadline)) || "${on_expired}"
 }
 
 # Wait at most one second, never past the shared deadline.

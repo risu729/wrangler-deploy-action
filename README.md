@@ -32,8 +32,9 @@ The default `production-strategy: versions` and legacy version uploads use `cf w
 --worker <worker>`. Production uses `cf workers deployments create` followed by
 an exact-ID Cloudflare API readback. The opt-in `production-strategy: deploy` uses
 `cf deploy --prebuilt --mode <build-mode> --worker <worker>`, then identifies
-the active deployment through the Cloudflare API and verifies that exact
-returned version at 100%.
+the active deployment through the Cloudflare API, verifies that exact
+returned version at 100%, and verifies that the Worker's observability settings
+match the Build Output.
 
 The versions strategy reads only the deployment UUID returned by the pinned
 CLI's create call, with the same explicit account, Worker and token. A typed
@@ -80,6 +81,28 @@ percentage cannot be told apart from an older deployment, so it is also read
 again until the deadline instead of failing at once. It takes that entry's UUID, prints how many reads it needed when
 more than one, and then applies the exact-ID and collection proof above within
 the remaining budget.
+
+`cf deploy` writes the non-versioned script settings (`observability`,
+`logpush`, `tail_consumers` and tags) after it activates the version. It catches
+any failure of that write and prints only a fixed warning about tags, so the
+command still succeeds. cf has no option that turns this warning into a failure.
+Before publication, the action reads the selected Worker's `observability`
+declaration from `worker.config.json` and converts its keys to the API's snake
+case, as cf does when it sends them. An absent declaration means
+`{"enabled": false}`, which cf sends in that case. A missing, ambiguous or
+invalid declaration fails before publication. After the deployment proof, the
+action reads the
+[script settings](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/get/)
+with the same credential. Every declared value must be present unchanged:
+defaults the API adds for undeclared fields are ignored, declared arrays must
+match whole, a value of another shape is a mismatch, and an absent
+`observability` object in the response means disabled. A mismatch is read again
+at most once a second within its own 30-second budget, then fails with
+`script_settings_readback_mismatch` and prints only the differing setting paths,
+also when a later read runs out of budget. A non-200 response prints only the
+HTTP status and numeric Cloudflare error codes; other failures print only a
+closed code. The action never writes settings itself, and the read uses the
+existing Worker-script permission.
 
 Legacy `preview-or-dry-run` uses version URLs on an existing Worker.
 Use `worker-preview` for branch and PR environments. Neither changes production

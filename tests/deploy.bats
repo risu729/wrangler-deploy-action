@@ -475,9 +475,12 @@ run_action() {
 	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 2 ]
 	[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 1 ]
 	assert_file_contains "${FAKE_CURL_LOG}" 'GET https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/deployments/22222222-2222-4222-8222-222222222222'
+	assert_file_contains "${FAKE_CURL_LOG}" 'GET https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/script-settings'
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.settings")" -eq 1 ]
 	assert_file_contains "${GITHUB_OUTPUT}" 'version-id=11111111-1111-4111-8111-111111111111'
 	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
 	assert_file_contains "${GITHUB_OUTPUT}" 'triggers-deployed=true'
+	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Observability settings matched the Build Output.'
 	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Container rollout completion requires caller verification.'
 	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
 }
@@ -1021,4 +1024,143 @@ set_domain_fixture() {
 	run run_action production account token
 	[ "${status}" -ne 0 ]
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+}
+
+set_observability_fixture() {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
+	printf '%s\n' '{"name":"worker","observability":{"enabled":true,"issues":{"enabled":true},"logs":{"enabled":true,"headSamplingRate":1,"invocationLogs":true}}}' \
+		>"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
+}
+
+@test "full deployment verifies declared observability in snake case" {
+	set_observability_fixture
+	export FAKE_SCRIPT_SETTINGS=declared
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.settings")" -eq 1 ]
+	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Observability settings matched the Build Output.'
+}
+
+@test "an undeclared observability block must read back as disabled or absent" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
+	export FAKE_SCRIPT_SETTINGS=absent
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	export FAKE_SCRIPT_SETTINGS=declared
+	rm -f "${FAKE_DEPLOYMENT_STATE}.settings"
+	printf '0' >"${FAKE_CLOCK}"
+	: >"${GITHUB_OUTPUT}"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'Script settings differing from the Build Output: ["observability.enabled"]'* ]]
+	[[ ${output} == *script_settings_readback_mismatch* ]]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+}
+
+@test "script settings that lag the deployment are read again within their own budget" {
+	set_observability_fixture
+	export FAKE_SCRIPT_SETTINGS=lagging
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.settings")" -eq 3 ]
+	[ "$(grep -c 'deploy --prebuilt' "${FAKE_CF_LOG}")" -eq 1 ]
+}
+
+@test "script settings that never match fail after 30 seconds without redeploying" {
+	set_observability_fixture
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'Script settings differing from the Build Output: ["observability.enabled","observability.issues.enabled","observability.logs.enabled"]'* ]]
+	[[ ${output} == *script_settings_readback_mismatch* ]]
+	[ "$(cat "${FAKE_CLOCK}")" -eq 30000 ]
+	[ "$(grep -c 'deploy --prebuilt' "${FAKE_CF_LOG}")" -eq 1 ]
+	[ ! -s "${GITHUB_OUTPUT}" ]
+	[ ! -s "${GITHUB_STEP_SUMMARY}" ]
+	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+}
+
+@test "script settings request and schema failures stop without exposing provider text" {
+	set_observability_fixture
+	for scenario in forbidden malformed invalid-observability false-success network; do
+		export FAKE_SCRIPT_SETTINGS="${scenario}"
+		rm -f "${FAKE_DEPLOYMENT_STATE}.settings"
+		printf '0' >"${FAKE_CLOCK}"
+		: >"${GITHUB_OUTPUT}"
+		run run_action production account sensitive-example-token
+		[ "${status}" -ne 0 ]
+		[ "$(cat "${FAKE_DEPLOYMENT_STATE}.settings")" -eq 1 ]
+		[ "$(cat "${FAKE_CLOCK}")" -eq 0 ]
+		case "${scenario}" in
+		forbidden) [[ ${output} == *'Script settings HTTP status: 403; Cloudflare error codes: [10000]'* ]] ;;
+		network) [[ ${output} == *script_settings_readback_request_failed* ]] ;;
+		*) [[ ${output} == *script_settings_readback_response_failed* ]] ;;
+		esac
+		[[ ${output} != *sensitive-example-token* && ${output} != *sensitive-provider-message* ]]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+	done
+}
+
+@test "invalid or ambiguous Build Output observability fails before publication" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
+	local output_root="${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers"
+	printf '%s\n' '{"name":"worker","observability":true}' >"${output_root}/default/worker.config.json"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *script_settings_build_output_invalid* ]]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'deploy --prebuilt'
+	printf '%s\n' '{"name":"worker"}' >"${output_root}/default/worker.config.json"
+	mkdir -p "${output_root}/copy"
+	printf '%s\n' '{"name":"worker"}' >"${output_root}/copy/worker.config.json"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *script_settings_build_output_invalid* ]]
+	rm -r "${output_root}/copy" "${output_root}/default"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *script_settings_build_output_missing* ]]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'deploy --prebuilt'
+	[ ! -s "${GITHUB_OUTPUT}" ]
+	[ ! -e "${FAKE_CURL_LOG}" ]
+}
+
+@test "a settings mismatch observed before a late request still reports its paths" {
+	set_observability_fixture
+	export FAKE_CURL_LATENCY_MS=150
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'Script settings differing from the Build Output: ["observability.enabled","observability.issues.enabled","observability.logs.enabled"]'* ]]
+	[[ ${output} == *script_settings_readback_mismatch* ]]
+	[[ ${output} != *script_settings_readback_pending* ]]
+}
+
+@test "declared arrays compare whole and a different response shape is a mismatch" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true FAKE_SCRIPT_SETTINGS=custom
+	printf '%s\n' '{"name":"worker","observability":{"enabled":true,"logs":{"enabled":true,"destinations":["a"]}}}' \
+		>"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
+	for actual in '{"enabled":true,"logs":{"enabled":true,"destinations":["a","b"]}}' '{"enabled":true,"logs":false}'; do
+		export FAKE_SCRIPT_SETTINGS_OBSERVABILITY="${actual}"
+		printf '0' >"${FAKE_CLOCK}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[[ ${output} == *script_settings_readback_mismatch* ]]
+		[[ ${output} == *'"observability.logs.destinations"'* ]]
+	done
+	export FAKE_SCRIPT_SETTINGS_OBSERVABILITY='{"enabled":true,"head_sampling_rate":1,"logs":{"enabled":true,"destinations":["a"],"persist":true}}'
+	printf '0' >"${FAKE_CLOCK}"
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+}
+
+@test "a missing script settings helper fails full deployment before publication" {
+	local action_copy="${BATS_TEST_TMPDIR}/action"
+	mkdir -p "${action_copy}/src"
+	cp "${repo_root}/src/deploy.sh" "${repo_root}/src/cf.sh" "${repo_root}/src/deployment-readback.sh" "${action_copy}/src/"
+	run env INPUT_MODE=production INPUT_WORKING_DIRECTORY=worker INPUT_WORKER=worker \
+		INPUT_CLOUDFLARE_ACCOUNT_ID=account INPUT_CLOUDFLARE_API_TOKEN=token \
+		INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true \
+		"${action_copy}/src/deploy.sh"
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *script_settings_helper_unavailable* ]]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'deploy --prebuilt'
+	[ ! -s "${GITHUB_OUTPUT}" ]
 }
