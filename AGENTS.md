@@ -37,8 +37,9 @@ version in its `package.json`.
 
 Apart from the tool locks that mise keeps in `.mise/locks/`, the only package
 dependencies are the fixture's in
-[`tests/fixtures/worker`](tests/fixtures/worker). Only the mise deps provider `[deps.bun]` in [`mise.toml`](mise.toml) installs
-them, through the `integration:deps` task that `integration:build` depends on.
+[`tests/fixtures/worker`](tests/fixtures/worker). Only the mise deps provider
+`[deps.bun]` in [`mise.toml`](mise.toml) installs them, through the
+`integration:deps` task that `integration:build` depends on.
 The provider skips the install while `package.json` and `bun.lock` are unchanged
 and `node_modules` exists. Do not add a `bun install` to a task, a script or a
 CI step.
