@@ -245,7 +245,11 @@ if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
 				# shellcheck disable=SC2016
 				printf 'Deployment: `%s` (verified at 100%%).\n\nTriggers synchronized: `%s`.\n' "${deployment_id}" "${triggers_deployed}"
 				if [[ ${production_strategy} == deploy ]]; then
-					printf '\nObservability settings matched the Build Output.\n'
+					if [[ ${script_settings_declared} == true ]]; then
+						printf '\nObservability settings matched the Build Output.\n'
+					else
+						printf '\nObservability is not declared in the Build Output, so its settings were not read back.\n'
+					fi
 					printf '\ncf applied configured Container applications. Container rollout completion requires caller verification.\n'
 				fi
 			fi

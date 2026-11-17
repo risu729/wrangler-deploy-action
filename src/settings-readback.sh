@@ -11,21 +11,29 @@ prepare_script_settings_expectation() {
 		[[ -f ${config} ]] && configs+=("${config}")
 	done
 	((${#configs[@]} > 0)) || fail 'script_settings_build_output_missing'
-	# Build Output uses camelCase keys; the API uses snake_case. A Worker without an
-	# observability declaration is published with observability disabled.
+	# Build Output uses camelCase keys; the API uses snake_case, and cf maps each key
+	# one to one. Without a declaration, what cf writes depends on its upload path: the
+	# settings PATCH sends observability disabled, while a full script upload omits it.
 	if ! jq --slurp --exit-status --arg worker "${worker}" '
 		def snake: gsub("(?<upper>[A-Z])"; "_" + (.upper | ascii_downcase));
 		def snake_keys: if type == "object" then with_entries(.key |= snake | .value |= snake_keys)
 			elif type == "array" then map(snake_keys) else . end;
 		map(select(.name == $worker))
 		| if length == 1 then .[0] else error("ambiguous worker") end
-		| {observability: (if .observability == null then {enabled: false}
+		| {observability: (if .observability == null then null
 			elif (.observability | type) == "object" then (.observability | snake_keys)
 			else error("invalid observability") end)}
 	' "${configs[@]}" >"${output_directory}/script-settings-desired.json" 2>/dev/null; then
 		fail 'script_settings_build_output_invalid'
 	fi
+	if jq --exit-status '.observability == null' "${output_directory}/script-settings-desired.json" >/dev/null 2>&1; then
+		script_settings_declared=false
+	else
+		script_settings_declared=true
+	fi
 }
+
+script_settings_declared=false
 
 # A mismatch observed before the budget ran out is reported as that mismatch, with
 # the differing setting paths, never as a pending read.
@@ -39,11 +47,13 @@ script_settings_expired() {
 	fail 'script_settings_readback_pending'
 }
 
-# Every declared observability value must be present unchanged in the readback; the API
-# may add defaults for undeclared fields. Like Wrangler's remote config diff, an absent
-# observability object means observability is disabled.
+# Every declared observability value must be present unchanged in the readback; fields
+# that are not declared are ignored. A declared field the response omits is a mismatch:
+# the API defaults of omitted fields are not filled in. Nothing is read without a
+# declaration, since cf may then leave the stored setting unchanged.
 verify_script_settings() {
 	local response="${output_directory}/script-settings.json" deadline mismatched codes status remaining sleep_time
+	[[ ${script_settings_declared} == true ]] || return 0
 	deadline=$(($(deployment_now_ms) + 30000))
 	while true; do
 		# Never evaluate a previous attempt's body if this one writes none.

@@ -83,18 +83,31 @@ more than one, and then applies the exact-ID and collection proof above within
 the remaining budget.
 
 `cf deploy` writes the non-versioned script settings (`observability`,
-`logpush`, `tail_consumers` and tags) after it activates the version. It catches
-any failure of that write and prints only a fixed warning about tags, so the
-command still succeeds. cf has no option that turns this warning into a failure.
+`logpush`, `tail_consumers` and tags) for an existing Worker in a separate
+settings request after it activates the version, unless the Worker needs a full
+script upload (for example, a new Worker or one with Containers).
+It catches any failure of that settings request and prints only a fixed warning
+about tags, so the command still succeeds
+([cf 1.0.0-beta.32, `dist/static-assets-CWo7dxyW.mjs` line 343](https://unpkg.com/cf@1.0.0-beta.32/dist/static-assets-CWo7dxyW.mjs)).
+cf has no option that turns this warning into a failure. The action verifies
+`observability` only; `logpush`, `tail_consumers` and tags are not read back.
+
 Before publication, the action reads the selected Worker's `observability`
 declaration from `worker.config.json` and converts its keys to the API's snake
-case, as cf does when it sends them. An absent declaration means
-`{"enabled": false}`, which cf sends in that case. A missing, ambiguous or
-invalid declaration fails before publication. After the deployment proof, the
-action reads the
-[script settings](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/get/)
-with the same credential. Every declared value must be present unchanged:
-defaults the API adds for undeclared fields are ignored, declared arrays must
+case, as cf does
+([`@cloudflare/config` 0.32.1, `dist/index.mjs` lines 983-1007](https://unpkg.com/@cloudflare/config@0.32.1/dist/index.mjs)).
+An ambiguous or invalid declaration, or a missing Build Output, fails before
+publication. Without a declaration, the action does not read the settings back:
+cf then sends `observability` disabled in the settings request but omits it from
+a full script upload, so the stored setting is not fully determined by the Build
+Output, and the step summary says so.
+
+With a declaration, after the deployment proof, the action reads the
+[script settings](https://github.com/cloudflare/api-schemas/blob/abdca47e25cfcee72c4beda2d61df2d9bc65f5a3/openapi.yaml#L243053)
+([documentation](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/get/))
+with the same credential. Every declared value must be present unchanged.
+Undeclared fields are ignored. A declared field the response omits is a
+mismatch, since the action does not fill in API defaults. Declared arrays must
 match whole, a value of another shape is a mismatch, and an absent
 `observability` object in the response means disabled. A mismatch is read again
 at most once a second within its own 30-second budget, then fails with

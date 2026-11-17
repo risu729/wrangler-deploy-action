@@ -475,12 +475,12 @@ run_action() {
 	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 2 ]
 	[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 1 ]
 	assert_file_contains "${FAKE_CURL_LOG}" 'GET https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/deployments/22222222-2222-4222-8222-222222222222'
-	assert_file_contains "${FAKE_CURL_LOG}" 'GET https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/script-settings'
-	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.settings")" -eq 1 ]
+	assert_file_not_contains "${FAKE_CURL_LOG}" 'script-settings'
+	[ ! -e "${FAKE_DEPLOYMENT_STATE}.settings" ]
 	assert_file_contains "${GITHUB_OUTPUT}" 'version-id=11111111-1111-4111-8111-111111111111'
 	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
 	assert_file_contains "${GITHUB_OUTPUT}" 'triggers-deployed=true'
-	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Observability settings matched the Build Output.'
+	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Observability is not declared in the Build Output, so its settings were not read back.'
 	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Container rollout completion requires caller verification.'
 	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
 }
@@ -1041,18 +1041,27 @@ set_observability_fixture() {
 	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Observability settings matched the Build Output.'
 }
 
-@test "an undeclared observability block must read back as disabled or absent" {
+@test "an undeclared observability block is not read back" {
 	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
+	for scenario in declared forbidden; do
+		export FAKE_SCRIPT_SETTINGS="${scenario}"
+		: >"${GITHUB_OUTPUT}"
+		: >"${GITHUB_STEP_SUMMARY}"
+		run run_action production account token
+		[ "${status}" -eq 0 ]
+		[ ! -e "${FAKE_DEPLOYMENT_STATE}.settings" ]
+		assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Observability is not declared in the Build Output, so its settings were not read back.'
+		assert_file_not_contains "${GITHUB_STEP_SUMMARY}" 'Observability settings matched'
+		assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
+	done
+}
+
+@test "a declared field the readback omits is a mismatch" {
+	set_observability_fixture
 	export FAKE_SCRIPT_SETTINGS=absent
 	run run_action production account token
-	[ "${status}" -eq 0 ]
-	export FAKE_SCRIPT_SETTINGS=declared
-	rm -f "${FAKE_DEPLOYMENT_STATE}.settings"
-	printf '0' >"${FAKE_CLOCK}"
-	: >"${GITHUB_OUTPUT}"
-	run run_action production account token
 	[ "${status}" -ne 0 ]
-	[[ ${output} == *'Script settings differing from the Build Output: ["observability.enabled"]'* ]]
+	[[ ${output} == *'Script settings differing from the Build Output: ["observability.enabled","observability.issues.enabled","observability.logs.enabled","observability.logs.head_sampling_rate","observability.logs.invocation_logs"]'* ]]
 	[[ ${output} == *script_settings_readback_mismatch* ]]
 	[ ! -s "${GITHUB_OUTPUT}" ]
 }
@@ -1137,13 +1146,19 @@ set_observability_fixture() {
 	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true FAKE_SCRIPT_SETTINGS=custom
 	printf '%s\n' '{"name":"worker","observability":{"enabled":true,"logs":{"enabled":true,"destinations":["a"]}}}' \
 		>"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
-	for actual in '{"enabled":true,"logs":{"enabled":true,"destinations":["a","b"]}}' '{"enabled":true,"logs":false}'; do
+	local -A expected=(
+		['{"enabled":true,"logs":{"enabled":true,"destinations":["a","b"]}}']='["observability.logs.destinations"]'
+		['{"enabled":true,"logs":false}']='["observability.logs.enabled","observability.logs.destinations"]'
+	)
+	local actual
+	for actual in "${!expected[@]}"; do
 		export FAKE_SCRIPT_SETTINGS_OBSERVABILITY="${actual}"
 		printf '0' >"${FAKE_CLOCK}"
 		run run_action production account token
 		[ "${status}" -ne 0 ]
 		[[ ${output} == *script_settings_readback_mismatch* ]]
-		[[ ${output} == *'"observability.logs.destinations"'* ]]
+		[[ ${output} == *"Script settings differing from the Build Output: ${expected[${actual}]}"$'\n'* ||
+			${output} == *"Script settings differing from the Build Output: ${expected[${actual}]}" ]]
 	done
 	export FAKE_SCRIPT_SETTINGS_OBSERVABILITY='{"enabled":true,"head_sampling_rate":1,"logs":{"enabled":true,"destinations":["a"],"persist":true}}'
 	printf '0' >"${FAKE_CLOCK}"
