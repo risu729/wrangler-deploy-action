@@ -31,8 +31,9 @@ Human-readable terminal output is never parsed.
 The default `production-strategy: versions` and legacy version uploads use `cf workers versions create --prebuilt --mode <build-mode>
 --worker <worker>`. Production uses `cf workers deployments create` followed by
 an exact-ID Cloudflare API readback. The opt-in `production-strategy: deploy` uses
-`cf deploy --prebuilt --mode <build-mode> --worker <worker>`, then reads the
-active deployment and verifies that exact returned version at 100%.
+`cf deploy --prebuilt --mode <build-mode> --worker <worker>`, then identifies
+the active deployment through the Cloudflare API and verifies that exact
+returned version at 100%.
 
 The versions strategy reads only the deployment UUID returned by the pinned
 CLI's create call, with the same explicit account, Worker and token. A typed
@@ -57,8 +58,9 @@ or automatic rollback is added. This read uses existing Worker script read/write
 permissions; no additional permission is requested.
 
 The enhanced readback uses existing curl and GNU date when available, as on
-GitHub-hosted Linux runners. Availability is checked before publication. Other
-supported production environments retain the original caller-pinned CLI's
+GitHub-hosted Linux runners. Availability is checked before publication. The
+`deploy` strategy requires them and fails before publication without them.
+Other production environments using the `versions` strategy retain the original caller-pinned CLI's
 one-shot exact-ID readback without retries or the additional collection proof;
 the action does not install any tool or change their runtime requirements. The
 [exact deployment](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/get/)
@@ -66,8 +68,16 @@ and [current deployment collection](https://developers.cloudflare.com/api/resour
 use the existing Worker-script permission. The token stays in
 an owner-only temporary header file and all response/header files are deleted
 on success or failure. Redirects and user curl configuration are disabled;
-provider bodies and transport diagnostics are not printed. The full `deploy`
-strategy retains its existing CLI list and exact-ID readback behavior.
+provider bodies and transport diagnostics are not printed.
+
+`cf deploy` reports the version it deployed but no deployment UUID. The `deploy`
+strategy therefore reads the current deployment collection until its first entry
+serves that exact version at 100%, under the same rules and the same 30-second
+budget as above: another or no deployment listed first is read again at most
+once a second, and malformed collections, HTTP errors and late responses fail
+immediately. It takes that entry's UUID, prints how many reads it needed when
+more than one, and then applies the exact-ID and collection proof above within
+the remaining budget.
 
 Legacy `preview-or-dry-run` uses version URLs on an existing Worker.
 Use `worker-preview` for branch and PR environments. Neither changes production

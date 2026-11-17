@@ -471,14 +471,35 @@ run_action() {
 	run run_action production account token
 	[ "${status}" -eq 0 ]
 	assert_file_contains "${FAKE_CF_LOG}" 'deploy --prebuilt --mode production --worker worker'
-	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments list --worker worker'
-	assert_file_contains "${FAKE_CF_LOG}" 'workers deployments get 22222222-2222-4222-8222-222222222222 --worker worker'
-	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
-	assert_file_not_contains "${FAKE_CF_LOG}" 'workers deployments create'
-	assert_file_not_contains "${FAKE_CF_LOG}" 'workers triggers deploy'
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers '
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 2 ]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}")" -eq 1 ]
+	assert_file_contains "${FAKE_CURL_LOG}" 'GET https://api.cloudflare.com/client/v4/accounts/account/workers/scripts/worker/deployments/22222222-2222-4222-8222-222222222222'
 	assert_file_contains "${GITHUB_OUTPUT}" 'version-id=11111111-1111-4111-8111-111111111111'
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
 	assert_file_contains "${GITHUB_OUTPUT}" 'triggers-deployed=true'
 	assert_file_contains "${GITHUB_STEP_SUMMARY}" 'Container rollout completion requires caller verification.'
+	[ -z "$(find "${RUNNER_TEMP}" -type f -print -quit)" ]
+}
+
+@test "full deployment waits for a lagging current list within the readback budget" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true FAKE_CURRENT_DEPLOYMENT=lagging
+	run run_action production account token
+	[ "${status}" -eq 0 ]
+	[[ ${output} == *'Current deployment list showed the deployed version after 3 read(s).'* ]]
+	[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 4 ]
+	[ "$(cat "${FAKE_CLOCK}")" -eq 2000 ]
+	[ "$(grep -c ' :: deploy --prebuilt' "${FAKE_CF_LOG}")" -eq 1 ]
+	assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=22222222-2222-4222-8222-222222222222'
+}
+
+@test "full deployment requires API readback tools before publication" {
+	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true FAKE_DATE_UNSUPPORTED=true
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'production-strategy deploy requires curl and GNU date'* ]]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'deploy --prebuilt'
+	[ ! -s "${GITHUB_OUTPUT}" ]
 }
 
 @test "full deployment requires explicit trigger consent before mutation" {
@@ -523,23 +544,43 @@ run_action() {
 	done
 }
 
-@test "full deployment rejects a different active version empty list or invalid deployment ID" {
+@test "full deployment rejects a different active version or an empty list at the deadline" {
 	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
-	for scenario in wrong-active-version wrong-percentage empty-deployments bad-deployment-id; do
-		export FAKE_CF_OUTPUT="${scenario}"
-		run run_action production account token
+	for scenario in previous wrong-version wrong-percentage empty; do
+		export FAKE_CURRENT_DEPLOYMENT="${scenario}"
+		rm -f "${FAKE_DEPLOYMENT_STATE}" "${FAKE_DEPLOYMENT_STATE}.current"
+		printf '0' >"${FAKE_CLOCK}"
+		: >"${GITHUB_OUTPUT}"
+		: >"${FAKE_CF_LOG}"
+		run run_action production account sensitive-example-token
 		[ "${status}" -ne 0 ]
+		[[ ${output} == *deployment_readback_current_mismatch* ]]
+		[[ ${output} == *'expected a deployment serving 11111111-1111-4111-8111-111111111111 at 100%'* ]]
+		[ "$(cat "${FAKE_CLOCK}")" -eq 30000 ]
+		[ ! -e "${FAKE_DEPLOYMENT_STATE}" ]
+		[ "$(grep -c ' :: deploy --prebuilt' "${FAKE_CF_LOG}")" -eq 1 ]
 		[ ! -s "${GITHUB_OUTPUT}" ]
-		[[ ${output} == *'active deployment did not match'* ]]
+		[[ ${output} != *sensitive-example-token* && ${output} != *sensitive-provider-message* && ${output} != *sensitive-author* ]]
 	done
 }
 
 @test "full deployment partial failures never produce success outputs" {
 	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
-	for scenario in upload containers triggers list get; do
+	for scenario in upload containers triggers; do
 		export FAKE_CF_FAILURE="${scenario}"
 		run run_action production account token
 		[ "${status}" -ne 0 ]
+		[ ! -s "${GITHUB_OUTPUT}" ]
+	done
+	unset FAKE_CF_FAILURE
+	for scenario in bad-id bad-versions bad-version-id malformed forbidden network; do
+		export FAKE_CURRENT_DEPLOYMENT="${scenario}"
+		rm -f "${FAKE_DEPLOYMENT_STATE}.current"
+		printf '0' >"${FAKE_CLOCK}"
+		run run_action production account token
+		[ "${status}" -ne 0 ]
+		[ "$(cat "${FAKE_DEPLOYMENT_STATE}.current")" -eq 1 ]
+		[ "$(cat "${FAKE_CLOCK}")" -eq 0 ]
 		[ ! -s "${GITHUB_OUTPUT}" ]
 	done
 }
@@ -557,7 +598,7 @@ run_action() {
 @test "full deployment validates the individual deployment readback after the active list" {
 	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
 	for scenario in wrong-readback-version wrong-readback-percentage; do
-		export FAKE_CF_OUTPUT="${scenario}"
+		export FAKE_DEPLOYMENT_API="${scenario}"
 		run run_action production account token
 		[ "${status}" -ne 0 ]
 		[[ ${output} == *'Deployment readback did not match'* ]]

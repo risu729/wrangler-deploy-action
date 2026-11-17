@@ -1,5 +1,6 @@
 # shellcheck shell=bash
-# Loaded before publication; called only with the pinned CLI's exact created UUID.
+# Loaded before publication; called only with the pinned CLI's exact created UUID or,
+# for cf deploy, the exact version it reported.
 # shellcheck disable=SC2154
 
 # GNU date and curl are supplied by the supported GitHub-hosted Linux runner.
@@ -26,7 +27,7 @@ fail_current_mismatch() {
 		end
 	' "${output_directory}/current-mismatch.json" 2>/dev/null)" || listed=unreadable
 	printf 'Current deployment list after %d read(s): expected %s serving %s at 100%%, first listed %s.\n' \
-		"${current_reads}" "${deployment_id}" "${version_id}" "${listed}" >&2
+		"${current_reads}" "${deployment_id:-a deployment}" "${version_id}" "${listed}" >&2
 	fail 'deployment_readback_current_mismatch'
 }
 
@@ -63,8 +64,18 @@ deployment_readback_wait() {
 	(($(deployment_now_ms) < deployment_readback_deadline)) || readback_expired
 }
 
+# One 30-second budget covers every deployment read of this run.
+start_deployment_readback() {
+	[[ -z ${deployment_readback_deadline:-} ]] || return 0
+	deployment_readback_deadline=$(($(deployment_now_ms) + 30000))
+	readonly deployment_readback_deadline
+	deployment_readback_headers="${output_directory}/readback-headers"
+	printf 'Authorization: Bearer %s\n' "${api_token}" >"${deployment_readback_headers}"
+}
+
 # Reads the current-deployment list. Returns 0 when its first entry is the created
-# deployment serving the uploaded version at 100%, and 1 while the list still shows
+# deployment (any deployment while deployment_id is still empty, for cf deploy)
+# serving the uploaded version at 100%, and 1 while the list still shows
 # another or no deployment first: the list can lag the exact resource. HTTP and schema
 # failures stop immediately, and so does the created deployment listed with other
 # versions, since deployments are immutable.
@@ -88,7 +99,7 @@ current_deployment_matches() {
 	fi
 	if jq --slurp -e --arg id "${deployment_id}" --arg version "${version_id}" '
 		.[0].result.deployments | length > 0 and
-		(.[0] | .id == $id and .strategy == "percentage" and
+		(.[0] | ($id == "" or .id == $id) and .strategy == "percentage" and
 		 (.versions | length == 1 and .[0].version_id == $version and .[0].percentage == 100))
 	' "${collection}" >/dev/null 2>&1; then
 		return 0
@@ -103,15 +114,32 @@ current_deployment_matches() {
 	return 1
 }
 
+# cf deploy reports the version, not the deployment UUID. Take the UUID of the
+# deployment that the current list shows first serving that exact version at 100%,
+# reading the list again while it still shows another or no deployment first.
+find_active_deployment() {
+	local list="https://api.cloudflare.com/client/v4/accounts/${account_id}/workers/scripts/${worker}/deployments"
+	start_deployment_readback
+	until current_deployment_matches "${list}" "${deployment_readback_headers}"; do
+		deployment_readback_wait
+	done
+	((current_reads == 1)) ||
+		printf 'Current deployment list showed the deployed version after %d read(s).\n' "${current_reads}"
+	deployment_id="$(jq --slurp --raw-output '.[0].result.deployments[0].id' \
+		"${output_directory}/current-deployments.json")" || fail 'deployment_readback_current_failed'
+	# The exact-ID proof below reads the list again from a clean state.
+	current_reads=0
+	current_mismatch_seen=false
+	(($(deployment_now_ms) < deployment_readback_deadline)) || fail 'deployment_readback_pending'
+}
+
 verify_created_deployment() {
 	local deadline remaining now status sleep_time attempt
 	local response="${output_directory}/readback-response.json"
-	local headers="${output_directory}/readback-headers"
 	local endpoint="https://api.cloudflare.com/client/v4/accounts/${account_id}/workers/scripts/${worker}/deployments/${deployment_id}"
-	deployment_readback_deadline=$(($(deployment_now_ms) + 30000))
-	readonly deployment_readback_deadline
+	start_deployment_readback
 	deadline="${deployment_readback_deadline}"
-	printf 'Authorization: Bearer %s\n' "${api_token}" >"${headers}"
+	local headers="${deployment_readback_headers}"
 	for ((attempt = 0; attempt < 30; attempt++)); do
 		now="$(deployment_now_ms)"
 		remaining=$((deadline - now))
