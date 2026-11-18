@@ -46,10 +46,10 @@ CLOCK_SLEEP
 	export FAKE_CF_SECRETS_LOG="${BATS_TEST_TMPDIR}/cf-secrets.json"
 
 	mkdir -p "${GITHUB_WORKSPACE}/worker" "${RUNNER_TEMP}"
-	mkdir -p "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0"
-	printf '%s\n' '{}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
-	mkdir -p "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default"
-	printf '%s\n' '{"name":"worker"}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
+	mkdir -p "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1"
+	printf '%s\n' '{}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/config.json"
+	mkdir -p "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/workers/default"
+	printf '%s\n' '{"name":"worker"}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/workers/default/worker.config.json"
 	: >"${GITHUB_OUTPUT}"
 	: >"${GITHUB_STEP_SUMMARY}"
 	: >"${FAKE_MISE_LOG}"
@@ -262,7 +262,7 @@ run_action() {
 }
 
 @test "missing prebuilt output fails before upload" {
-	rm "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
+	rm "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/config.json"
 	run run_action production account token
 	[ "${status}" -ne 0 ]
 	[[ ${output} == *'Cloudflare Build Output is missing'* ]]
@@ -368,7 +368,7 @@ run_action() {
 }
 
 @test "Workers Preview lets cf build and verifies the resource and latest deployment" {
-	rm "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
+	rm "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/config.json"
 	run run_action worker-preview account token
 	[ "${status}" -eq 0 ]
 	assert_file_contains "${FAKE_CF_LOG}" 'previews deploy --preview-name pr-42 --mode production --worker worker'
@@ -420,7 +420,7 @@ run_action() {
 }
 
 @test "cleanup resolves an exact name deletes by ID and verifies absence without cf or a build" {
-	rm "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
+	rm "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/config.json"
 	export FAKE_CF_MISSING=1
 	run run_action delete-preview account token
 	[ "${status}" -eq 0 ]
@@ -925,7 +925,7 @@ run_action() {
 
 set_domain_fixture() {
 	export INPUT_DEPLOY_TRIGGERS=true
-	printf '%s\n' '{"name":"worker","domains":["example.com"]}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
+	printf '%s\n' '{"name":"worker","domains":["example.com"]}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/workers/default/worker.config.json"
 }
 
 @test "domain guard verifies existing attachments three times" {
@@ -1003,8 +1003,8 @@ set_domain_fixture() {
 
 @test "domain guard rejects duplicate Worker identities before publication" {
 	set_domain_fixture
-	mkdir -p "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/another"
-	cp "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json" "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/another/worker.config.json"
+	mkdir -p "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/workers/another"
+	cp "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/workers/default/worker.config.json" "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/workers/another/worker.config.json"
 	run run_action production account token
 	[ "${status}" -ne 0 ]
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
@@ -1012,7 +1012,7 @@ set_domain_fixture() {
 
 @test "domain guard rejects an artifact targeting a different account" {
 	set_domain_fixture
-	printf '%s\n' '{"accountId":"different-account"}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/config.json"
+	printf '%s\n' '{"accountId":"different-account"}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/config.json"
 	run run_action production account token
 	[ "${status}" -ne 0 ]
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
@@ -1020,7 +1020,7 @@ set_domain_fixture() {
 
 @test "domain guard verifies explicitly declared domain flags" {
 	set_domain_fixture
-	printf '%s\n' '{"name":"worker","domains":[{"hostname":"example.com","production":false,"previews":true}]}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
+	printf '%s\n' '{"name":"worker","domains":[{"hostname":"example.com","production":false,"previews":true}]}' >"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/workers/default/worker.config.json"
 	run run_action production account token
 	[ "${status}" -ne 0 ]
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
@@ -1029,7 +1029,7 @@ set_domain_fixture() {
 set_observability_fixture() {
 	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
 	printf '%s\n' '{"name":"worker","observability":{"enabled":true,"issues":{"enabled":true},"logs":{"enabled":true,"headSamplingRate":1,"invocationLogs":true}}}' \
-		>"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
+		>"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/workers/default/worker.config.json"
 }
 
 @test "full deployment verifies declared observability in snake case" {
@@ -1111,7 +1111,7 @@ set_observability_fixture() {
 
 @test "invalid or ambiguous Build Output observability fails before publication" {
 	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true
-	local output_root="${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers"
+	local output_root="${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/workers"
 	printf '%s\n' '{"name":"worker","observability":true}' >"${output_root}/default/worker.config.json"
 	run run_action production account token
 	[ "${status}" -ne 0 ]
@@ -1145,7 +1145,7 @@ set_observability_fixture() {
 @test "declared arrays compare whole and a different response shape is a mismatch" {
 	export INPUT_PRODUCTION_STRATEGY=deploy INPUT_DEPLOY_TRIGGERS=true FAKE_SCRIPT_SETTINGS=custom
 	printf '%s\n' '{"name":"worker","observability":{"enabled":true,"logs":{"enabled":true,"destinations":["a"]}}}' \
-		>"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0/workers/default/worker.config.json"
+		>"${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1/workers/default/worker.config.json"
 	local -A expected=(
 		['{"enabled":true,"logs":{"enabled":true,"destinations":["a","b"]}}']='["observability.logs.destinations"]'
 		['{"enabled":true,"logs":false}']='["observability.logs.enabled","observability.logs.destinations"]'
