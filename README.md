@@ -380,7 +380,7 @@ avoids those requests. Grant only the products actually used by the project;
 this strategy cannot preserve the default versions-only permission boundary.
 
 The action supports Linux runners with Bash, jq, curl, and a Node.js version supported
-by the caller's pinned cf (currently Node.js 22.18 or later). It does not create
+by the caller's pinned cf (currently Node.js 22.23, 24.22, or 26.12 or later in each major line). It does not create
 or broaden API tokens.
 
 ## Migrating from v3
@@ -389,6 +389,8 @@ or broaden API tokens.
   1.0.0-rc.0 and later write. Upgrade cf, wrangler (4.163.0 or later), and
   `@cloudflare/vite-plugin` (2.0.0-rc.0 or later) together, and move any
   artifact upload, download, or checksum path from `.cloudflare/output/v0`.
+  Delete any old `.cloudflare/output/v0` folder, such as one restored from a
+  cache: cf refuses to deploy when more than one Build Output folder exists.
 - Pin a v4 release commit.
 
 ## Migrating from v2

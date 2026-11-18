@@ -269,6 +269,14 @@ run_action() {
 	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
 }
 
+@test "Build Output v0 alone points to the v4 migration" {
+	mv "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v1" "${GITHUB_WORKSPACE}/worker/.cloudflare/output/v0"
+	run run_action production account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'Found Build Output v0'* ]]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'workers versions create'
+}
+
 @test "production requires both explicit credentials" {
 	run run_action production
 	[ "${status}" -ne 0 ]
