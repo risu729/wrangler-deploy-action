@@ -6,10 +6,10 @@ prepare_domain_guard() {
 	if ! jq --slurp --exit-status --arg account "${account_id}" '
 		length == 1 and (.[0] | type == "object" and
 		((has("accountId") | not) or .accountId == $account))
-	' .cloudflare/output/v0/config.json >/dev/null 2>&1; then
+	' .cloudflare/output/v1/config.json >/dev/null 2>&1; then
 		fail 'domain_guard_account_mismatch'
 	fi
-	for config in .cloudflare/output/v0/workers/*/worker.config.json; do
+	for config in .cloudflare/output/v1/workers/*/worker.config.json; do
 		[[ -f ${config} ]] && configs+=("${config}")
 	done
 	((${#configs[@]} > 0)) || fail 'domain_guard_build_output_missing'

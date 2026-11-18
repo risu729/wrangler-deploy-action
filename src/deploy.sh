@@ -88,7 +88,10 @@ if [[ ${mode} == worker-preview || ${mode} == delete-preview ]]; then
 	source "${script_directory}/previews.sh"
 	exit 0
 fi
-[[ -f .cloudflare/output/v0/config.json ]] || fail 'Cloudflare Build Output is missing; run cf build before invoking this action.'
+if [[ ! -f .cloudflare/output/v1/config.json ]]; then
+	[[ ! -e .cloudflare/output/v0 ]] || fail 'Found Build Output v0, which this action no longer reads; upgrade cf to 1.0.0-rc.0 or later, delete .cloudflare/output/v0, and rebuild.'
+	fail 'Cloudflare Build Output is missing; run cf build before invoking this action.'
+fi
 resolve_cf "${resolved_working_directory}" "${workspace}"
 
 # Restrict secret files from creation and remove them on both success and failure.

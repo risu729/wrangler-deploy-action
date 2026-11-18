@@ -168,7 +168,7 @@ build` builds Dockerfile images and records local Docker tags in Container Build
 Output. `cf deploy --prebuilt` pushes those already-built tags and applies their
 remote image digests. Keep the same Docker daemon from build through deploy, or
 transfer and load the exact built images with their recorded tags. Copying only
-`.cloudflare/output/v0` or the Docker source context to another runner is
+`.cloudflare/output/v1` or the Docker source context to another runner is
 insufficient. Verify image identity as well as the Worker artifact before deployment.
 
 `deploy` is accepted only in `production` and `dry-run` modes. Select it in the
@@ -231,7 +231,7 @@ The action calls `cf previews deploy --preview-name <preview-name> --mode
 <build-mode> --worker <worker>`; cf beta.32 and later require the flag. It builds
 with Preview context so a function-form `cloudflare.config.ts` sees
 `isPreview: true`. Build logs go to stderr; the JSON result on stdout is
-verified. The build writes to the same `.cloudflare/output/v0` folder, and
+verified. The build writes to the same `.cloudflare/output/v1` folder, and
 production modes reject Preview output, so archive production artifacts first.
 
 Unlike production, Previews are not deployed from prebuilt output. cf documents
@@ -288,7 +288,7 @@ fallback. Production always requires both explicit credentials.
 ### Production from a validated artifact
 
 Restore and verify the earlier build in the Worker project directory before
-this step. The Build Output must be at `.cloudflare/output/v0`.
+this step. The Build Output must be at `.cloudflare/output/v1`.
 
 ```yaml
 - name: Deploy validated Worker
@@ -380,8 +380,18 @@ avoids those requests. Grant only the products actually used by the project;
 this strategy cannot preserve the default versions-only permission boundary.
 
 The action supports Linux runners with Bash, jq, curl, and a Node.js version supported
-by the caller's pinned cf (currently Node.js 22.18 or later). It does not create
+by the caller's pinned cf (currently Node.js 22.23, 24.22, or 26.12 or later in each major line). It does not create
 or broaden API tokens.
+
+## Migrating from v3
+
+- The action reads Build Output from `.cloudflare/output/v1`, which cf
+  1.0.0-rc.0 and later write. Upgrade cf, wrangler (4.163.0 or later), and
+  `@cloudflare/vite-plugin` (2.0.0-rc.0 or later) together, and move any
+  artifact upload, download, or checksum path from `.cloudflare/output/v0`.
+  Delete any old `.cloudflare/output/v0` folder, such as one restored from a
+  cache: cf refuses to deploy when more than one Build Output folder exists.
+- Pin a v4 release commit.
 
 ## Migrating from v2
 

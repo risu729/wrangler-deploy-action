@@ -38,7 +38,7 @@ export INPUT_BUILD_MODE=production
 # cf previews deploy leaves Preview output behind, and production must reject it.
 # Without credentials, reproduce that output with the variable cf sets internally.
 CLOUDFLARE_PREVIEW_BUILD=true bun run cf build
-jq -e '.buildContext.isPreview == true and .buildContext.mode == "production"' .cloudflare/output/v0/config.json
+jq -e '.buildContext.isPreview == true and .buildContext.mode == "production"' .cloudflare/output/v1/config.json
 for strategy in versions deploy; do
 	export INPUT_PRODUCTION_STRATEGY="${strategy}"
 	if "${repo_root}/src/deploy.sh" >"${temporary_directory}/preview-mode.log" 2>&1; then

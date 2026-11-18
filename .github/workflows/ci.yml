@@ -54,8 +54,8 @@ jobs:
       - name: Use fake mise and cf
         run: |
           echo "${GITHUB_WORKSPACE}/tests/fake-bin" >> "${GITHUB_PATH}"
-          mkdir -p tests/fixtures/worker/.cloudflare/output/v0
-          echo '{}' > tests/fixtures/worker/.cloudflare/output/v0/config.json
+          mkdir -p tests/fixtures/worker/.cloudflare/output/v1
+          echo '{}' > tests/fixtures/worker/.cloudflare/output/v1/config.json
       - name: Test preview action
         id: preview
         uses: $/

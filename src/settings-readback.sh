@@ -7,7 +7,7 @@
 # reports a failed settings write only as a warning. Read the setting back instead.
 prepare_script_settings_expectation() {
 	local configs=() config
-	for config in .cloudflare/output/v0/workers/*/worker.config.json; do
+	for config in .cloudflare/output/v1/workers/*/worker.config.json; do
 		[[ -f ${config} ]] && configs+=("${config}")
 	done
 	((${#configs[@]} > 0)) || fail 'script_settings_build_output_missing'
