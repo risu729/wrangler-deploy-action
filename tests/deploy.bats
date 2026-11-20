@@ -418,13 +418,46 @@ run_action() {
 	assert_file_not_contains "${FAKE_CF_LOG}" '--dry-run'
 }
 
+@test "Workers Preview waits for the Previews API to show the upload" {
+	for scenario in lagging-preview lagging-deployment; do
+		export FAKE_PREVIEW_API="${scenario}"
+		rm -f "${FAKE_CURL_STATE}.reads" "${FAKE_CURL_LOG}"
+		: >"${GITHUB_OUTPUT}"
+		run run_action worker-preview account token
+		[ "${status}" -eq 0 ]
+		assert_file_contains "${GITHUB_OUTPUT}" 'deployment-id=deployment-456'
+		[ "$(wc -l <"${FAKE_CURL_LOG}")" -eq 4 ]
+	done
+}
+
 @test "Workers Preview mismatched resource or deployment fails verification" {
 	for scenario in wrong-name wrong-id wrong-deployment wrong-url; do
 		export FAKE_PREVIEW_API="${scenario}"
 		run run_action worker-preview account token
 		[ "${status}" -ne 0 ]
 		[ ! -s "${GITHUB_OUTPUT}" ]
+		if [[ ${scenario} == wrong-deployment ]]; then
+			[[ ${output} == *'Latest Preview deployment did not match the upload.'* ]]
+		else
+			[[ ${output} == *'Preview readback did not match the upload.'* ]]
+		fi
 	done
+}
+
+@test "Workers Preview without GNU date fails before the upload" {
+	export FAKE_DATE_UNSUPPORTED=true
+	run run_action worker-preview account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'GNU date is required for Workers Preview verification.'* ]]
+	assert_file_not_contains "${FAKE_CF_LOG}" 'previews deploy'
+}
+
+@test "Workers Preview that never appears fails once the readback budget is spent" {
+	export FAKE_PREVIEW_API=missing
+	run run_action worker-preview account token
+	[ "${status}" -ne 0 ]
+	[[ ${output} == *'Uploaded Preview was not found.'* ]]
+	[ "$(cat "${FAKE_CLOCK}")" -ge 30000 ]
 }
 
 @test "cleanup resolves an exact name deletes by ID and verifies absence without cf or a build" {
