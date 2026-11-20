@@ -260,7 +260,17 @@ scenario="${FAKE_PREVIEW_API:-}"
 [[ ${scenario} == network ]] && exit 1
 status=200
 body='{"success":true,"result":{}}'
-if [[ ${scenario} == forbidden || (${scenario} == readback-failure && -f ${FAKE_CURL_STATE}) || (${scenario} == delete-failure && ${method} == DELETE) ]]; then
+# Lagging scenarios answer stale reads twice before the uploaded state appears.
+reads=0
+if [[ ${scenario} == lagging-preview || ${scenario} == lagging-deployment ]]; then
+	[[ ! -f ${FAKE_CURL_STATE}.reads ]] || reads="$(cat "${FAKE_CURL_STATE}.reads")"
+	reads=$((reads + 1))
+	printf '%s' "${reads}" >"${FAKE_CURL_STATE}.reads"
+fi
+if [[ ${scenario} == lagging-preview ]] && ((reads <= 2)); then
+	status=404
+	body='{"success":false,"errors":[{"code":10025}]}'
+elif [[ ${scenario} == forbidden || (${scenario} == readback-failure && -f ${FAKE_CURL_STATE}) || (${scenario} == delete-failure && ${method} == DELETE) ]]; then
 	status=403
 	body='{"success":false,"errors":[{"code":10000}]}'
 elif [[ ${scenario} == malformed ]]; then
@@ -276,6 +286,7 @@ elif [[ ${method} == DELETE ]]; then
 elif [[ ${url} == */deployments/latest ]]; then
 	id=deployment-456
 	[[ ${scenario} == wrong-deployment ]] && id=other
+	[[ ${scenario} == lagging-deployment ]] && ((reads <= 3)) && id=previous
 	body="$(jq -nc --arg id "${id}" '{success:true,result:{id:$id,urls:["https://deployment-worker.example.workers.dev"]}}')"
 else
 	name=pr-42 id=preview-123 url=https://pr-42-worker.example.workers.dev

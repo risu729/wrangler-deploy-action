@@ -8,6 +8,9 @@ readonly preview_name="${INPUT_PREVIEW_NAME:-}"
 [[ ${account_id} =~ ^[a-zA-Z0-9_-]+$ && ${worker} =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'Invalid account ID or Worker name.'
 [[ ${api_token} != *$'\n'* && ${api_token} != *$'\r'* ]] || fail 'Invalid API token.'
 command -v curl >/dev/null 2>&1 || fail 'curl is required for Workers Preview verification and cleanup.'
+if [[ ${mode} == worker-preview ]]; then
+	[[ $(date +%s%3N 2>/dev/null) =~ ^[0-9]+$ ]] || fail 'GNU date is required for Workers Preview verification.'
+fi
 
 umask 077
 output_directory="$(mktemp -d "${temporary_root%/}/cf-preview-action.XXXXXX")"
@@ -31,6 +34,35 @@ preview_request() {
 	if [[ ${status} != 2[0-9][0-9] ]] || ! jq -e '.success == true' "${destination}" >/dev/null 2>&1; then
 		fail "Workers Preview API request failed (HTTP ${status})."
 	fi
+}
+
+# Reads one Preview resource and sets readback_status to matched, missing or mismatched.
+preview_readback() {
+	local path="$1" file="${output_directory}/$2" filter="$3" request_status=0
+	preview_request GET "${path}" "${file}" || request_status=$?
+	if ((request_status != 0)); then
+		readback_status=missing
+		return 1
+	fi
+	if jq -e --argjson upload "${upload}" ".result | ${filter}" "${file}" >/dev/null; then
+		readback_status=matched
+		return 0
+	fi
+	readback_status=mismatched
+	return 1
+}
+
+# Waits at most one second before the next read, failing with the last state once the budget is spent.
+readback_wait() {
+	local state="$1" missing_message="$2" mismatch_message="$3" remaining sleep_time
+	remaining=$((readback_deadline - $(date +%s%3N)))
+	if ((remaining <= 0)); then
+		[[ ${state} == missing ]] && fail "${missing_message}"
+		fail "${mismatch_message}"
+	fi
+	((remaining < 1000)) || remaining=1000
+	printf -v sleep_time '%d.%03d' "$((remaining / 1000))" "$((remaining % 1000))"
+	sleep "${sleep_time}"
 }
 
 preview_id=''
@@ -60,10 +92,18 @@ if [[ ${mode} == worker-preview ]]; then
 	deployment_id="$(jq -r '.deployment_id' <<<"${upload}")"
 	preview_url="$(jq -r '.preview_urls[0]' <<<"${upload}")"
 	deployment_url="$(jq -r '.deployment_urls[0]' <<<"${upload}")"
-	preview_request GET "${preview_name}" "${output_directory}/preview.json" || fail 'Uploaded Preview was not found.'
-	jq -e --argjson upload "${upload}" '.result | .id == $upload.preview_id and .name == $upload.preview_name and .slug == $upload.preview_slug and .urls == $upload.preview_urls' "${output_directory}/preview.json" >/dev/null || fail 'Preview readback did not match the upload.'
-	preview_request GET "${preview_id}/deployments/latest" "${output_directory}/deployment.json" || fail 'Preview deployment was not found.'
-	jq -e --argjson upload "${upload}" '.result | .id == $upload.deployment_id and .urls == $upload.deployment_urls' "${output_directory}/deployment.json" >/dev/null || fail 'Latest Preview deployment did not match the upload.'
+	# The Previews API is eventually consistent: right after cf returns, a new
+	# Preview can still read as missing and deployments/latest can still name the
+	# previous deployment. Both readbacks share one 30-second budget.
+	readback_deadline=$(($(date +%s%3N) + 30000))
+	# shellcheck disable=SC2016 # jq filters, expanded by preview_readback.
+	until preview_readback "${preview_name}" preview.json '.id == $upload.preview_id and .name == $upload.preview_name and .slug == $upload.preview_slug and .urls == $upload.preview_urls'; do
+		readback_wait "${readback_status}" 'Uploaded Preview was not found.' 'Preview readback did not match the upload.'
+	done
+	# shellcheck disable=SC2016 # jq filters, expanded by preview_readback.
+	until preview_readback "${preview_id}/deployments/latest" deployment.json '.id == $upload.deployment_id and .urls == $upload.deployment_urls'; do
+		readback_wait "${readback_status}" 'Preview deployment was not found.' 'Latest Preview deployment did not match the upload.'
+	done
 else
 	if preview_request GET "${preview_name}" "${output_directory}/preview.json"; then
 		preview_id="$(jq -er --arg name "${preview_name}" --arg id "${id_pattern}" '.result | select(.name == $name and .slug == $name) | .id | select(type == "string" and test($id))' "${output_directory}/preview.json")" || fail 'Preview lookup did not match the requested name.'
