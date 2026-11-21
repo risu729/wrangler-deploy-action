@@ -352,10 +352,10 @@ checksum = "sha256:e2edda75bfb089654705cf65a13b58933bfd5f57148e8ebda916f58a2474f
 url = "https://nodejs.org/dist/v26.13.1/node-v26.13.1-win-x64.zip"
 
 [[tools."npm:semantic-release"]]
-version = "25.0.9"
-aube = { path = ".mise/locks/npm-semantic-release/25.0.9", digest = "sha256:a0dda7548b706c0440eed780bb4246a67087b9bb402ac86b418aee80a1c2a729" }
+version = "26.0.1"
+aube = { path = ".mise/locks/npm-semantic-release/26.0.1", digest = "sha256:4fa51c9e2c0c26f332ce8743bfc5d653e2c2a5aba80708de819b8227d433bc99" }
 backend = "npm:semantic-release"
-specifiers = ["25.0.9"]
+specifiers = ["26.0.1"]
 
 [[tools.pinact]]
 version = "5.0.2"

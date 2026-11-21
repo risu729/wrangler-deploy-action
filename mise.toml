@@ -20,7 +20,7 @@ yamlfmt = "0.21.0"
 uv = "0.13.9"
 yamllint = "1.38.0"
 typos = "1.52.2"
-"npm:semantic-release" = "25.0.9"
+"npm:semantic-release" = "26.0.1"
 
 [settings]
 # `[deps]` below is still experimental in mise 2026.11.8.

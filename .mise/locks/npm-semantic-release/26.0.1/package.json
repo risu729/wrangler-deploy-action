@@ -2,6 +2,6 @@
   "name": "mise-npm-install",
   "private": true,
   "dependencies": {
-    "semantic-release": "25.0.9"
+    "semantic-release": "26.0.1"
   }
 }
