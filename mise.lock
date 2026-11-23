@@ -6,6 +6,10 @@ lockfile_version = 3
 version = "1.14.0"
 backend = "aqua:bats-core/bats-core"
 specifiers = ["1.14.0"]
+unsupported_platforms = [
+    "windows-x64",
+    "windows-x64-baseline",
+]
 
 [tools.bats."platforms.linux-arm64"]
 checksum = "sha256:bb537b70b15b732f6d8827dd6578e3d8ce166636ce1f18ea9a074184fcce9177"
@@ -176,6 +180,10 @@ provenance = "cosign"
 version = "2.13.0"
 backend = "packslip:github.com/jdx/hk"
 specifiers = ["2.13.0"]
+unsupported_platforms = [
+    "macos-x64",
+    "macos-x64-baseline",
+]
 
 [tools.hk."platforms.linux-arm64"]
 checksum = "sha256:490196a4e638991c671f42941d72ade4d00b14750145f34fc64377b49fc070bb"
@@ -353,7 +361,7 @@ url = "https://nodejs.org/dist/v26.13.1/node-v26.13.1-win-x64.zip"
 
 [[tools."npm:semantic-release"]]
 version = "26.0.1"
-aube = { path = ".mise/locks/npm-semantic-release/26.0.1", digest = "sha256:4fa51c9e2c0c26f332ce8743bfc5d653e2c2a5aba80708de819b8227d433bc99" }
+aube = { path = ".mise/locks/npm-semantic-release/26.0.1", digest = "sha256:4119515d54f7d4ee93b52771e538280a6ef9af700f3ed2d3ad3138b869402200" }
 backend = "npm:semantic-release"
 specifiers = ["26.0.1"]
 
